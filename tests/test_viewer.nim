@@ -152,6 +152,15 @@ suite "the appended game block":
     check "aria-label" in block4
     check "mgCore.seek(tick)" in block4
 
+  test "feed rows and banner chips use classes the stylesheet actually styles":
+    ## A class name with no rule is invisible styling: the text lands in
+    ## #killfeed and #bannerlane with no plate, no pixel font and no colour.
+    let page = readFile(repoRoot() / "client" / "replay_broadcast.html")
+    check ".feed-row {" in page
+    check ".banner-chip {" in page
+    check "row.className = 'feed-row';" in block4
+    check "chip.className = 'banner-chip';" in block4
+
   test "the 360 px rules are present":
     check ".plate-name { flex: 1 1 auto; min-width: 3.2em;" in block4
     check "#stage.tiny .plate.mg .plate-enc" in block4

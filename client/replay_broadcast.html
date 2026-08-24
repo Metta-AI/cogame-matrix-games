@@ -1868,7 +1868,7 @@ button.beat-marker.ahead { opacity: 0.18; }
       host.textContent = '';
       mgFeed.forEach(function (line) {
         var row = document.createElement('div');
-        row.className = 'kf-row';
+        row.className = 'feed-row';
         row.textContent = line;
         host.appendChild(row);
       });
@@ -1890,7 +1890,7 @@ button.beat-marker.ahead { opacity: 0.18; }
         }
         if (!text) return;
         var chip = document.createElement('div');
-        chip.className = 'banner';
+        chip.className = 'banner-chip';
         chip.textContent = text;
         host.appendChild(chip);
         window.setTimeout(function () {
