@@ -326,6 +326,39 @@ jobs:
             --strict-text-bounds \
             --timeout 90
 
+      # -----------------------------------------------------------------
+      # THE CI REPLAY CANNOT TALK. docker_smoke.sh runs without an
+      # ANTHROPIC_API_KEY, so every seat above fell back to its scripted
+      # baseline and every string in that replay is the game's own. The feed
+      # row that carries a seat's `say` -- the one piece of chrome that exists
+      # to show what a MODEL said -- is untested by the step above.
+      #
+      # So the same bundle is loaded a second time against a committed
+      # worst-case fixture: a real episode of this game whose every order
+      # event on every seat carries a full-cap 64-rune `say` and a 400-rune
+      # `notes`, padded with unbroken runs so nothing can soft-wrap its way
+      # out of trouble, and containing every beat-marker kind the scrubber
+      # labels. tests/test_worst_case_text.nim asserts the fixture still
+      # carries those strings AT FULL LENGTH -- one quietly shortened remark
+      # would leave this step green while testing nothing.
+      # -----------------------------------------------------------------
+      - name: Load the worst-case model-text fixture in the same bundle
+        run: |
+          set -euo pipefail
+          fixture="tests/fixtures/worst_case_text.replay"
+          test -s "${fixture}" || {
+            echo "::error::${fixture} is missing. Regenerate it with"
+            echo "::error::  nim r --path:src --path:tests tools/gen_worst_case_replay.nim"
+            exit 1; }
+          mkdir -p dist/worst-case-text
+          node tools/ci/viewer_smoke.mjs \
+            --bundle dist/static-replay-viewer \
+            --replay "${fixture}" \
+            --soak 10 \
+            --strict-text-bounds \
+            --out dist/worst-case-text \
+            --timeout 90
+
       - name: Upload the viewer smoke evidence
         # Always: the screenshot and the JSON are most useful when the job is red.
         if: always()
@@ -335,6 +368,7 @@ jobs:
           path: |
             viewer-smoke.png
             viewer-smoke.json
+            dist/worst-case-text
           if-no-files-found: warn
           retention-days: 14
 

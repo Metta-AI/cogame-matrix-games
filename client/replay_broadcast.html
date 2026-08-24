@@ -1422,6 +1422,35 @@ body[data-embed] #board { top: 0; height: 100%; }
   border: calc(1 * var(--u)) solid rgba(18, 13, 9, 0.8);
 }
 
+/* ---- the feed row carries the model's words ------------------------- */
+/* The starter's `.feed-row` is a one-line kill notice: `white-space: nowrap`
+   and `max-width: none`, sized to content. A matrix-games row carries a
+   seat's `say` -- up to MaxSayRunes (64) runes of MODEL-AUTHORED text on top
+   of `ASH: gather cooperate` -- and a nowrap row that long grows leftward out
+   of the 228-unit feed column and off the stage.
+   Checklist item 15's rule: a REMARK WRAPS (a cut sentence means the box is
+   too small), a LABEL ellipsizes. So the row is bounded by the column it
+   lives in and wraps inside it, including through the unbroken runs a model
+   can write; `#killfeed` is `column-reverse` and bottom-anchored, so a taller
+   row grows upward into empty stage, never over the transport band.
+   tests/test_worst_case_text.nim loads the full-cap fixture through the real
+   bundle and asserts these rules exist. */
+#killfeed .feed-row {
+  display: block;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: right;
+  line-height: 1.25;
+}
+/* Banner chips are LABELS -- "BIG PAY — ASH 4.35", "LEAD — BIRCH" -- built
+   from an alias and a number, never from model text, so this one may cut. */
+#bannerlane .banner-chip {
+  max-width: calc(100% - 16 * var(--u));
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---- one CSS rule per scrubber beat kind ---------------------------- */
 /* The four kinds the state frame can emit are interact, bigpay, leadchange
    and over -- and only those four -- which is what makes "a rule per kind" a
