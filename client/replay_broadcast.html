@@ -778,61 +778,6 @@ html, body {
   pointer-events: none;
   z-index: 2;
 }
-/* Encounter events on the timeline: deaths, phase starts, the enrage,
-   interrupts and crucible soaks, each a button pinned at its tick on the
-   SAME 0->maxTicks axis as the seek track, so a click seeks straight to it.
-   Markers ahead of the playhead are hidden until "spoilers" is on. */
-.ev-lane {
-  position: absolute;
-  left: 0; right: 0; top: 0;
-  height: calc(12 * var(--u));
-  z-index: 4;
-  pointer-events: none;
-}
-.ev {
-  position: absolute;
-  top: 0;
-  width: max(calc(3 * var(--u)), 3px);
-  height: calc(12 * var(--u));
-  margin: 0; padding: 0; border: 0;
-  transform: translateX(-50%);
-  background: var(--paper-dim);
-  cursor: pointer;
-  pointer-events: auto;
-}
-.ev::before {
-  /* a wider invisible hit box so a 3 px tick is still a fingertip target */
-  content: ''; position: absolute; inset: calc(-3 * var(--u)) calc(-5 * var(--u));
-}
-.ev::after {
-  content: ''; position: absolute; left: 50%; top: 0;
-  width: calc(7 * var(--u)); height: calc(7 * var(--u));
-  transform: translate(-50%, calc(-4 * var(--u)));
-  border-radius: 50%; background: inherit;
-}
-.ev:hover, .ev:focus-visible { filter: brightness(1.35); outline: none; z-index: 5; }
-.ev.death { background: #ff5a3a; }
-.ev.phase { background: var(--amber); }
-.ev.enrage { background: #d63031; height: calc(16 * var(--u)); }
-.ev.interrupt { background: #45a85e; }
-.ev.crucible { background: #e0523a; }
-.ev.crucible.soaked { background: #3f7cc4; }
-.ev.ahead { display: none; }
-.ev-tip {
-  position: absolute;
-  bottom: calc(100% + 6 * var(--u));
-  transform: translateX(-50%);
-  padding: calc(3 * var(--u)) calc(6 * var(--u));
-  background: rgba(12, 9, 6, 0.94);
-  box-shadow: 0 0 0 1px rgba(232, 163, 61, 0.3);
-  color: var(--paper);
-  font: 600 calc(9 * var(--u))/1.2 'Courier New', monospace;
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 9;
-  display: none;
-}
-.ev-tip.show { display: block; }
 .beat-marker {
   position: absolute;
   top: 0;
