@@ -1,0 +1,20 @@
+# Compose services consumed by `uv run coworld build --project .`.
+#
+# `coworld build` derives the manifest's image PLACEHOLDER from the service
+# name (service `game` -> `{{GAME_IMAGE}}`) and hard-fails anything else. The
+# service is named `game` rather than `matrix-games` on purpose: the
+# derivation from a HYPHENATED service name is not specified anywhere we can
+# check, whereas `service game -> {{GAME_IMAGE}}` is the exact pattern two
+# certified starters (cogame-moba, cogame-factorio) ship.
+#
+# One service, one image: the game server and the player both live in it and
+# the manifest's `run` selects the entrypoint (/bin/matrix-games and
+# /bin/matrix-games-player).
+services:
+  game:
+    image: cogame-matrix-games:latest
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+      network: host

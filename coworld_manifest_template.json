@@ -1,0 +1,825 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Metta-AI/coworld/main/src/coworld/coworld_manifest_schema.json",
+  "tags": [
+    "game-theory",
+    "melting-pot",
+    "multi-agent",
+    "llm-driven",
+    "real-time",
+    "eight-player"
+  ],
+  "episode_timeout_minutes": 20,
+  "game": {
+    "name": "matrix-games",
+    "owner": "daveey@softmax.com",
+    "description": "Eight cogs, a yard full of tokens, and one payoff matrix that changes everything. A merged port of Melting Pot's *_in_the_matrix family: your inventory mix IS your strategy, and an interaction beam resolves it against whoever you hit.",
+    "replay_viewer": {
+      "bundle": "static-replay-viewer"
+    },
+    "runnable": {
+      "type": "game",
+      "image": "{{GAME_IMAGE}}",
+      "run": [
+        "/bin/matrix-games"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY_URI": "secret://coworld/matrix-games/anthropic_api_key"
+      },
+      "source_url": "https://github.com/Metta-AI/cogame-matrix-games/tree/main"
+    },
+    "config_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokens",
+        "players"
+      ],
+      "properties": {
+        "tokens": {
+          "description": "One connection token per player slot, indexed by slot.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "players": {
+          "description": "One player display-name object per seat, indexed by slot.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "num_agents": {
+          "description": "Seat count; injected by the commissioner. Matrix Games is an eight-cog game, in every variant.",
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 8,
+          "default": 8
+        },
+        "seed": {
+          "description": "Pins the spawner layout and the fixed-pick draw. Omit for a fresh random seed per episode.",
+          "type": "integer"
+        },
+        "matrix": {
+          "description": "Which of the seven payoff matrices this episode plays. The matrix fixes K, the token names and both payoff tables.",
+          "type": "string",
+          "enum": [
+            "running-with-scissors",
+            "prisoners-dilemma",
+            "chicken",
+            "stag-hunt",
+            "bach-or-stravinsky",
+            "pure-coordination",
+            "rationalizable-coordination"
+          ],
+          "default": "running-with-scissors"
+        },
+        "beats": {
+          "description": "Decision beats in the episode.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 24,
+          "default": 12
+        },
+        "ticksPerBeat": {
+          "description": "Ticks per beat at 24 ticks per second.",
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 120,
+          "default": 50
+        },
+        "tokenCap": {
+          "description": "Most tokens of one type a cog can hold.",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 16,
+          "default": 8
+        },
+        "tokenRespawnTicks": {
+          "description": "Ticks before a collected spawner refills.",
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 200,
+          "default": 45
+        },
+        "beamRange": {
+          "description": "Interaction beam reach, in cells.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "default": 4
+        },
+        "freezeTicks": {
+          "description": "Ticks a cog is frozen after a resolution.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60,
+          "default": 12
+        },
+        "stepCooldownTicks": {
+          "description": "Ticks between steps.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3
+        },
+        "beamResetCooldown": {
+          "description": "Beam cooldown after a resolution.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 120,
+          "default": 25
+        },
+        "beamMissCooldown": {
+          "description": "Beam cooldown after a miss or a no-contest.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60,
+          "default": 6
+        },
+        "viewRadius": {
+          "description": "How far a cog can read another cog's inventory, in cells, with clear line of sight.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 24,
+          "default": 7
+        },
+        "llmTimeoutSeconds": {
+          "description": "Deadline for one parallel decision batch.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120,
+          "default": 20
+        },
+        "minBeatSeconds": {
+          "description": "Wall-clock floor between decision batches. The Bedrock sidecar caps 30 requests per minute per episode and eight seats per batch makes this the binding constraint.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 120,
+          "default": 17
+        },
+        "maxOutputTokens": {
+          "description": "Model output cap. 400 truncates mid-JSON.",
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 2000,
+          "default": 900
+        },
+        "model": {
+          "description": "Claude model that drives every LLM seat.",
+          "type": "string",
+          "default": "claude-haiku-4-5"
+        },
+        "episodeTimeoutSeconds": {
+          "description": "Wall clock the game assumes the platform allows when COWORLD_TIMEOUT_SECONDS is not in its environment. Play settles inside 60 % of it.",
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 6000,
+          "default": 1200
+        },
+        "playerConnectTimeoutSeconds": {
+          "description": "Bounded wait for the eight player containers to connect.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 600,
+          "default": 180
+        },
+        "shutdownGraceSeconds": {
+          "description": "How long /healthz and /global keep answering after the artifacts are written. Hosted certification pings the global websocket AFTER the player pods start.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 120,
+          "default": 20
+        }
+      }
+    },
+    "results_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "names",
+        "scores",
+        "win",
+        "aliases",
+        "reason"
+      ],
+      "properties": {
+        "names": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "string"
+          },
+          "description": "POLICY display names by slot. Seats play under anonymous cog aliases in-game; results attribute by policy name."
+        },
+        "scores": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "number"
+          },
+          "description": "Total payoff collected, in points. HIGHER IS BETTER. Negative scores are normal and expected in running-with-scissors, which is zero-sum."
+        },
+        "win": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "boolean"
+          },
+          "description": "scores[i] == max(scores)."
+        },
+        "aliases": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "string"
+          },
+          "description": "Ash..Holly, by slot."
+        },
+        "camps": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "string"
+          },
+          "description": "row / column in bach-or-stravinsky, none elsewhere."
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "running-with-scissors",
+            "prisoners-dilemma",
+            "chicken",
+            "stag-hunt",
+            "bach-or-stravinsky",
+            "pure-coordination",
+            "rationalizable-coordination"
+          ]
+        },
+        "interactions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "perSeatInteractions": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "Resolutions each seat took part in."
+        },
+        "meanPayoff": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": "number"
+          },
+          "description": "scores[i] / perSeatInteractions[i], or 0.0."
+        },
+        "exploitability": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "description": "Points left on the table against the mean opponent mix. null for a seat with zero resolutions."
+        },
+        "coopRate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Share of the inventory mass carried into resolutions that was the coop token. null for the four variants that declare no coop token."
+        },
+        "conventionCounts": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 3,
+          "description": "conventionCounts[i][j] = resolutions that hit cell (i,j).",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 3,
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "tokens": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 3,
+          "items": {
+            "type": "string"
+          },
+          "description": "This variant's token names."
+        },
+        "beats": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ticks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "deadline",
+            "forfeit"
+          ]
+        },
+        "ending": {
+          "type": "string",
+          "enum": [
+            "full_match",
+            "deadline",
+            "forfeit"
+          ]
+        }
+      }
+    },
+    "docs": {
+      "readme": {
+        "type": "text",
+        "value": "# cogame-matrix-games\n\n**Eight cogs, a yard full of tokens, and one payoff matrix that changes\neverything.**\n\nMatrix Games is a merged port of Melting Pot's `*_in_the_matrix` family. Eight\ncogs roam one 24 x 14 walled yard collecting K token types. Your **inventory\nmix IS your strategy** \u2014 not a declaration, not a button press: the fraction of\nyour inventory that is `defect` is the probability weight you are playing on\n`defect`. Fire the interaction beam at another cog and the two mixes are\nmultiplied through the variant's payoff matrix; both of you are paid, both of\nyou reset to one token of each type, and both of you freeze for half a second.\n\nCommitment is therefore expensive, visible and perishable. A cog within seven\ncells with clear line of sight can read your whole inventory before it decides\nwhether to close, so a feint \u2014 buying tokens you do not intend to spend \u2014 is a\nreal move. Camping a zone to starve a rival shows up as a public counter\nfalling. And because a resolution resets you, the cog that just won a fight is\nthe cheapest target in the yard.\n\nSeven variants share the engine and differ only in the matrix: **running with\nscissors** (cyclic zero-sum), **prisoners' dilemma**, **chicken**, **stag\nhunt**, **Bach or Stravinsky** (asymmetric camps, cross-camp interactions\nonly), **pure coordination** and **rationalizable coordination**.\n\nSeats decide once per 50-tick beat; a deterministic kernel executes that\nintent \u2014 gather, deny, hunt, avoid, hold \u2014 tick by tick. All eight seats'\ndecisions go out as ONE parallel batch per beat.\n\n**A policy is just a prompt** \u2014 see [docs/POLICIES.md](docs/POLICIES.md).\n\n## Layout\n\n- `src/matrix_games.nim` \u2014 entrypoint. Seed randomisation happens HERE, before\n  the pinned seed is honoured, so every seed-derived draw follows the final\n  seed.\n- `src/matrix_games_player.nim` \u2014 the thin prompt-carrying player. It never\n  decides anything.\n- `src/matrix_games/` \u2014 `sim_types.nim` (constants, wire types, the two text\n  helpers), `matrices.nim` (the seven matrices), `arena_map.nim` (the ASCII\n  yard), `sim_config.nim`, `sim_state.nim` (the `Sim` object, the seeded\n  spawner draw, the digest), `kernel.nim` (the five intents' per-tick kernel\n  and the BFS), `indices.nim`, `scripted.nim` (the five baselines), `sim.nim`\n  (the ten numbered tick rules and the seat observation), `events.nim`,\n  `llm.nim` (the batched decision layer), `broadcast.nim` (the chrome frame),\n  `global.nim` (the viewer packet), `map_art.nim`, `replays.nim`,\n  `server.nim`.\n- `client/` \u2014 `chrome_common.js` copied BYTE-FOR-BYTE from `coworld-ctf`,\n  `broadcast_core.js` (the board renderer), and `replay_broadcast.html`: the\n  inherited paintbot chrome with the matrix-games game block appended under a\n  banner comment.\n- `replay-viewer/` \u2014 the static wasm bundle: `config.nims`,\n  `matrix_games_replay.nim`, `static_replay.js`, `static_replay_worker.js`.\n- `tests/` \u2014 every file is a standalone program; `tests/support/` holds the\n  shared helpers so the `tests/*.nim` glob never runs one.\n\n## Generated files\n\nThree things are generated and must be regenerated rather than edited:\n\n```bash\npython3 scripts/art/split_cog_sheet.py data/cog   # nano-banana cog poses\npython3 scripts/art/gen_matrix_art.py             # liveries, tokens, floor, FX\npython3 scripts/gen_manifest.py                   # coworld_manifest_template.json\n```\n\nThe manifest INLINES `README.md`, `docs/RULES.md`, `docs/MATRICES.md`,\n`docs/POLICIES.md`, `docs/PROTOCOL.md` and `docs/GLOBAL.md`, so editing a doc\nwithout re-running the generator leaves the coworld page stale.\n\n## Two name spaces\n\nA seat sees only the eight aliases `Ash Birch Cedar Dune Elm Fern Gorse\nHolly`. Real policy names live in the replay's `policyNames[]`, the scorebug\nplates, the endcard, `results.names[]` and the `/global` snapshot \u2014 nowhere a\nseat can read them.\n\n## Rune boundaries\n\nEvery string that can reach the replay or the results goes through\n`sim_types.cleanText`. Never slice one of those by byte index: a\nbyte-truncated multi-byte character renders in a browser and then fails a\nstrict JSON parser, which is how a hosted replay becomes unreadable.\n\n## CI is the harness\n\n`ci.yml` runs every `tests/*.nim` twice (debug and `-d:release`), builds the\nproduction image and runs one real 8-seat episode in raw docker from the\ncertification fixture, then builds the static replay bundle and OPENS it in\nheadless chromium against that episode's replay.\n`tools/build_replay_viewer.sh` and `tools/ci/docker_smoke.sh` must stay mode\n100755 \u2014 `coworld build` refuses to package a source replay-viewer bundle\nunless the hook is `os.X_OK`."
+      },
+      "pages": [
+        {
+          "id": "rules.md",
+          "title": "Rules",
+          "content": {
+            "type": "text",
+            "value": "# Matrix Games \u2014 rules\n\n## The yard\n\nOne fixed arena, 24 cells wide by 14 tall, rendered at 40 px per cell (a\n960 x 560 board). It is the same map in every variant, mirror-symmetric\nleft-right and top-bottom, fully connected, with 216 free cells. `#` is wall,\n`.` is floor:\n\n```\n########################\n#....##..........##....#\n#..........##..........#\n#.##....#......#....##.#\n#.##................##.#\n#......##......##......#\n#..##..............##..#\n#..##..............##..#\n#......##......##......#\n#.##................##.#\n#.##....#......#....##.#\n#..........##..........#\n#....##..........##....#\n########################\n```\n\nEight cogs play, always: `Ash Birch Cedar Dune Elm Fern Gorse Holly`, one per\nslot, each in a fixed livery. In `bach-or-stravinsky` slots 0-3 are the row\n(blue) camp and slots 4-7 the column (orange) camp; in every other variant\nevery cog is eligible against every other.\n\nOne episode is 12 beats of 50 ticks = 600 ticks. Playback is 24 fps, so a full\nreplay is 25 seconds of video.\n\n## Tokens\n\nThe variant fixes `K` (2 or 3) and the token names. Spawners are fixed cells\nthat hold at most one token, drawn once at episode start from the seeded RNG:\n16 in zone A (type 0, top left), 16 in zone B (type 1, top right), 16 in zone\nC (type 2, centre bottom, K = 3 only), and a 12-spawner mixed scatter across\nthe centre band whose n-th spawner carries type `n mod K`.\n\nStepping onto a spawner that holds a token collects it unless that type is\nalready at `tokenCap = 8`. A collected spawner refills 45 ticks later. Zone\ntoken counts are public, so camping a zone to starve a rival is visible to\neveryone as a falling counter.\n\nEvery cog starts, and after every resolution resets to, the ENDOWMENT: one\ntoken of each type. Maximum purity is 8/9 (K = 2) or 8/10 (K = 3):\ncommitment is expensive and never total.\n\n**Inventory mix IS strategy.** A cog's strategy at the moment of an\ninteraction is the rational vector `x_i = n_i / N`.\n\n## One intent per beat\n\nAt each beat boundary every seat submits ONE intent, which a deterministic\nper-tick kernel then executes for the next 50 ticks.\n\n| intent | argument | what the kernel does |\n|---|---|---|\n| `gather` | `token` | path to the nearest cell holding a token of that type and collect it; at the cap, hold at the type's zone centre. Never fires. |\n| `deny` | `token` | take the token of that type nearest to the nearest other cog. Never fires. |\n| `hunt` | `target` | path toward that cog's last known cell; fire the first tick it is in the ray and the beam is ready. |\n| `avoid` | `target` | move away and never enter a cell within 2 of it. Never fires. |\n| `hold` | \u2014 | stand still, re-face the nearest cog within 6 cells every 4 ticks, fire when one is in the ray. |\n\nPathing is a breadth-first search over free cells with ties broken in the\ndirection order N, E, S, W. A cog with no legal step waits.\n\n## The ten numbered tick rules\n\n1. **Timers.** `freeze`, `stepCd`, `beamCd` and `immune` each tick down to 0.\n2. **Token respawn.** Every spawner whose `refillAt == t` gets its token back.\n3. **Intent evaluation.** Each unfrozen cog produces one micro-action:\n   `step(dir)`, `turn(dir)`, `fire` or `wait`. Frozen cogs produce `wait`.\n4. **Movement**, seats in ascending slot order. A cog with `stepCd == 0` moves\n   one cell if it is floor and currently unoccupied, sets its facing and takes\n   `stepCooldownTicks = 3`. `turn(dir)` costs nothing.\n5. **Pickup**, ascending slot order.\n6. **Beam fire**, ascending slot order. Range 4 cells along the facing,\n   stopped by the first wall; the first cog in the ray is the target. No\n   target, or a frozen / immune target, or (in `bach-or-stravinsky`) a\n   same-camp target, is a miss or a no-contest and costs\n   `beamMissCooldown = 6`.\n7. **Resolution.** The row player is the shooter, except in\n   `bach-or-stravinsky` where it is the row-camp participant regardless of who\n   fired. With the row inventory `n` (`N = sum n`) and the column inventory `m`\n   (`M = sum m`):\n\n   ```\n   rowPayCp = ( sum_i sum_j  n_i * rowPay[i][j] * m_j * 100 ) div (N * M)\n   colPayCp = ( sum_i sum_j  n_i * colPay[i][j] * m_j * 100 ) div (N * M)\n   ```\n\n   `div` truncates toward zero. Payoffs are in centipoints. The cell the\n   viewer pops is `(argmax n, argmax m)`, ties to the lowest index.\n8. **Reset.** Both participants reset to the endowment, `freeze = 12`,\n   `immune = 12`, `beamCd = beamResetCooldown = 25`.\n9. **Indices.** The convention histogram, the cooperation accumulator, the\n   per-seat exploitability accumulators and the leader check.\n10. **Record.** One state frame, its events and two series rows.\n\n## Scoring\n\n`scores[i]` is the sum of the payoffs seat `i` collected, in points. **Higher\nis better.** In `running-with-scissors` the scores are zero-sum and negatives\nare normal. A cog that never resolves an interaction scores exactly 0: there\nis no participation bonus and no penalty for hiding.\n\nThe episode ends at the first of: 12 beats played (`complete` / `full_match`);\nthe play deadline, 60 % of `episodeTimeoutSeconds`, crossed between beats\n(`deadline`); or no seat socket connected within 180 s (`forfeit`). Those\nthree are the only legal `results.reason` values."
+          }
+        },
+        {
+          "id": "matrices.md",
+          "title": "The seven matrices",
+          "content": {
+            "type": "text",
+            "value": "# The seven matrices\n\nEvery variant names two integer K x K matrices, `rowPay` and `colPay`. For\nevery symmetric variant `colPay = transpose(rowPay)`; only\n`bach-or-stravinsky` differs. Each cell below is `row payoff / column payoff`.\n\n## `running-with-scissors` (default) \u2014 K = 3, `rock, paper, scissors`\n\n|        | rock | paper | scissors |\n|---|---|---|---|\n| **rock** | 0 / 0 | -3 / 3 | 3 / -3 |\n| **paper** | 3 / -3 | 0 / 0 | -3 / 3 |\n| **scissors** | -3 / 3 | 3 / -3 | 0 / 0 |\n\nCyclic and zero-sum, scaled x3 so one clean win pays the same 3 as mutual\ncooperation in the prisoners' dilemma. No fixed policy survives: whatever you\ncommit to is visible in your inventory before the beam lands, so feints and\ntoken denial are the game.\n\n## `prisoners-dilemma` \u2014 K = 2, `cooperate, defect`\n\n|        | cooperate | defect |\n|---|---|---|\n| **cooperate** | 3 / 3 | 0 / 5 |\n| **defect** | 5 / 0 | 1 / 1 |\n\nConditional cooperation with strangers. Defect strictly dominates per\nencounter; a room that manages to hold a cooperative convention out-earns a\nroom that does not.\n\n## `chicken` \u2014 K = 2, `dove, hawk`\n\n|        | dove | hawk |\n|---|---|---|\n| **dove** | 3 / 3 | 1 / 4 |\n| **hawk** | 4 / 1 | 0 / 0 |\n\nAnti-coordination: T = 4 > R = 3 > S = 1 > P = 0, and mutual hawk is the\ncrash, 0 / 0. Who yields \u2014 with no words, because there is no inter-seat\nchannel.\n\n## `stag-hunt` \u2014 K = 2, `stag, hare`\n\n|        | stag | hare |\n|---|---|---|\n| **stag** | 4 / 4 | 0 / 2 |\n| **hare** | 2 / 0 | 2 / 2 |\n\nAssurance. Stag/stag is payoff-dominant, hare is risk-dominant, and the whole\nquestion is whether the room can trust the other cog to have bought stag.\n\n## `bach-or-stravinsky` \u2014 K = 2, `bach, stravinsky`, ASYMMETRIC\n\n|        | bach | stravinsky |\n|---|---|---|\n| **bach** | 3 / 2 | 0 / 0 |\n| **stravinsky** | 0 / 0 | 2 / 3 |\n\nThe row (blue) camp \u2014 slots 0-3 \u2014 is paid 3 for Bach; the column (orange)\ncamp \u2014 slots 4-7 \u2014 is paid 3 for Stravinsky. Interactions only resolve\nBETWEEN camps: a beam at your own camp is a no-contest.\n\n## `pure-coordination` \u2014 K = 3, `red, green, blue`\n\nThe identity matrix: all three matches pay 1 / 1, everything else pays 0 / 0.\nCommon interest with no conflict at all \u2014 the only problem is agreeing.\n\n## `rationalizable-coordination` \u2014 K = 3, `bronze, silver, gold`\n\nThe diagonal pays 1 / 1, 2 / 2 and 3 / 3; everything else pays 0 / 0. Same\ncoordination problem, but now one convention is strictly better than another,\nso a room that settles on bronze has left money on the table.\n\n## What is derived\n\nTwo best-response tables are computed once per variant and shipped in every\nseat's observation, so a seat never has to work the counter out itself:\n\n```\nbestResponseRow[j] = argmax_i rowPay[i][j]\nbestResponseCol[i] = argmax_j colPay[i][j]\n```\n\nTies go to the lowest index."
+          }
+        },
+        {
+          "id": "policies.md",
+          "title": "Fielding a policy",
+          "content": {
+            "type": "text",
+            "value": "# Fielding a policy\n\n**A policy is a prompt.** The player container is deliberately thin: it\nconnects, sends one frame carrying its prompt (or the name of a built-in\nbaseline), and thereafter only listens. Every decision is made inside the GAME\ncontainer, which is what makes one parallel batch per beat possible.\n\n## An LLM policy\n\n```bash\ncoworld upload-policy cogame-matrix-games:latest \\\n  --name my-matrix \\\n  --run /bin/matrix-games-player \\\n  --secret-env PLAYER_PROMPT=\"<your strategy for the yard>\" \\\n  --secret-env USE_BEDROCK=true\n```\n\n`USE_BEDROCK=true` is not optional for a league policy: the platform gates the\nplayer pod's Bedrock sidecar on it, and without it the seat silently plays\nscripted.\n\nYour prompt is appended to the seat's observation under a\n`GUIDANCE FROM YOUR OPERATOR` header and weighted heavily, but never above the\nrules and never above the output format.\n\n## A scripted baseline\n\n```bash\ncoworld upload-policy cogame-matrix-games:latest \\\n  --name my-baseline \\\n  --run /bin/matrix-games-player \\\n  --secret-env PLAYER_SCRIPTED=counter\n```\n\nFive baselines ship in the same image, all reading the same observation object\nan LLM seat receives:\n\n| name | what it does |\n|---|---|\n| `always-first` | commits to token 0 every beat: always-C / always-dove / always-stag / always-Bach / always-rock |\n| `always-second` | commits to token 1: always-D / always-hawk / always-hare / always-Stravinsky |\n| `fixed-pick` | draws one type at episode start and never changes |\n| `tit-for-tat` | mirrors whatever the nearest eligible cog last showed |\n| `counter` | plays the best response to what the nearest eligible cog last showed. The strongest of the five, and the fallback move whenever an LLM seat's decision fails. |\n\n## The reply your prompt has to produce\n\nExactly one JSON object whose first character is `{`:\n\n```json\n{\"intent\":\"hunt\",\"target\":\"Ash\",\"token\":\"defect\",\n \"say\":\"Ash is loaded with cooperate - take him\",\n \"notes\":\"Fern defected on me twice; Ash has coop-heavy mixes\"}\n```\n\n| field | domain | cap |\n|---|---|---|\n| `intent` | `gather`, `deny`, `hunt`, `avoid`, `hold` | required |\n| `token` | a token name of this variant, case-insensitive (an integer index is also accepted) | required for `gather` and `deny` |\n| `target` | an alias of another ELIGIBLE cog, case-insensitive | required for `hunt` and `avoid` |\n| `say` | free text, spectator-only | 64 characters |\n| `notes` | free text, handed back to you next beat | 400 characters |\n\nThe user prompt enumerates the legal token names and the legal target aliases\nverbatim, computed by the same predicate the validator applies, so a reply\nthat copies from those lists cannot be rejected.\n\nExtra keys are ignored; trailing prose after the closing brace is tolerated.\nAn invalid reply is retried ONCE with an explicit hint. Still invalid, the\nseat plays `counter` for that beat and the replay records\n`\"source\":\"fallback\"`, which the spectator feed tags `[auto]`.\n\n## What your prompt can see\n\nEverything in `docs/PROTOCOL.md`'s observation, and nothing else. In\nparticular you never see another seat's intent, notes, `say`, prompt or policy\nname, the RNG seed, or the position and inventory of any cog outside your view\nradius. There is no inter-seat channel: `say` is written to the replay and\ndrawn in the spectator feed, never shown to another seat."
+          }
+        }
+      ]
+    },
+    "protocols": {
+      "player": {
+        "type": "text",
+        "value": "# Matrix Games \u2014 wire protocols\n\n## `matrix.player.v1` (WS `/player?slot=N&token=T`)\n\nJSON text frames.\n\n**player -> game**, immediately on connect and again after `welcome` (the\nre-send guards the slot-registration race):\n\n```json\n{\"type\":\"prompt\",\"prompt\":\"<= 4000 chars\",\n \"scripted\":\"counter|tit-for-tat|fixed-pick|always-first|always-second|\",\n \"policy\":\"<display label>\"}\n```\n\nAny other frame is ignored with a log line.\n\n**game -> player**:\n\n```json\n{\"type\":\"welcome\",\"protocol\":\"matrix.player.v1\",\"slot\":4,\"name\":\"Elm\",\n \"camp\":\"column\",\"variant\":\"prisoners-dilemma\",\"beats\":12,\"ticksPerBeat\":50}\n```\n\nthen, at every beat boundary and once at episode end, the seat's whole\nobservation (`\"type\":\"state\"`): the board, the full matrix and both\nbest-response tables, every constant, your own position / facing / inventory /\nmix / score / cooldowns, every zone rectangle with its LIVE token count, the\ntokens inside your view, every other cog's alias / camp / cumulative score /\ninteraction count (plus its position and inventory when it is within\n`viewRadius` with clear line of sight, or its last known cell and\n`seenTicksAgo` when it is not), the complete public log of every resolution in\nthe episode, the room indices, your own notes, and the enumerated legal token\nand target lists.\n\nHidden from a seat: every other seat's intent, notes, `say`, prompt and policy\nname; the RNG seed; the positions and inventories of cogs outside its view;\nanything about accounts, players or the league. **There is no inter-seat\nchannel** \u2014 `say` is spectator-only.\n\nFinally:\n\n```json\n{\"type\":\"final\",\"done\":true,\"slot\":4,\"scores\":[\u20268 floats\u2026],\n \"names\":[\u20268 aliases\u2026],\"beats\":12,\"reason\":\"complete\",\"ending\":\"full_match\"}\n```\n\nafter which the player exits 0.\n\n### The reply schema\n\n```json\n{\"intent\":\"hunt\",\"target\":\"Ash\",\"token\":\"defect\",\n \"say\":\"Ash is loaded with cooperate - take him\",\n \"notes\":\"Fern defected on me twice\"}\n```\n\n| field | domain | on violation |\n|---|---|---|\n| `intent` | one of `gather`, `deny`, `hunt`, `avoid`, `hold` | invalid reply |\n| `token` | a token name of this variant (case-insensitive; an integer index is also accepted) | required for `gather`/`deny`; absent or unknown is an invalid reply |\n| `target` | an alias of another ELIGIBLE cog (cross-camp only in `bach-or-stravinsky`) | required for `hunt`/`avoid`; absent, unknown, self or ineligible is an invalid reply |\n| `say` | 64 characters | truncated on RUNE boundaries |\n| `notes` | 400 characters | truncated on RUNE boundaries |\n\nExtra keys are ignored and trailing prose after the closing brace is\ntolerated. An invalid reply is retried ONCE with an explicit hint; still\ninvalid, that seat plays the `counter` scripted intent for the beat and the\n`order` event records `\"source\":\"fallback\"`.\n\n## `matrix.global.v1` (WS `/global`)\n\nOne JSON snapshot per beat boundary and at the end: paintbot's chrome key set\n(`t, mt, ph, pl, sp, mx, st, lp, sk, ff, en, mm, bs, teams, roster, events,\nlead, beats, lulls, over, hold`) plus a `seats` array carrying every cog's\nslot, alias, POLICY name, livery, camp, position, inventory, mix, score,\ninteraction count and last intent. `teams` carries the K token-type keys\n(`red`, `blue`, `green`), each `{share, tokensLeft, cells}`.\n\n## The static replay bundle\n\nThe manifest declares `\"replay_viewer\": {\"bundle\": \"static-replay-viewer\"}`.\nThe bundle is opened as `index.html?replay=<url of the .replay file>`; it\nfetches those bytes, hands them to the wasm module, and plays back RECORDED\nSTATE \u2014 there is no re-simulation, so a seek is an array index. No server is\ncontacted except S3 for the replay file.\n\nThe shell sets `data-replay-loaded=\"true\"` on `<html>` on its first drawn\nframe and `data-replay-error=\"<message>\"` on failure, and posts the\n`coworld-replay` bridge's `ready` message from the callback that fires AFTER\n`data-replay-loaded` is set."
+      },
+      "global": {
+        "type": "text",
+        "value": "# The `/global` spectator stream and the static replay bundle\n\n## `WS /global` \u2014 `matrix.global.v1`\n\nOne JSON snapshot per beat boundary and one at the end. The key set is\npaintbot's chrome frame verbatim \u2014 `t, mt, ph, pl, sp, mx, st, lp, sk, ff,\nen, mm, bs, teams, roster, events, lead, beats, lulls, over, hold` \u2014 so the\nshared `client/chrome_common.js` runs unmodified over the stream, plus:\n\n- `seats`: eight objects, one per slot, carrying `s`, `alias`, the real\n  POLICY `name`, `livery`, `color`, `camp`, `x`, `y`, `facing`, `inv`, `mix`\n  (permille), `scoreCp`, `interactions`, `frozen`, `intent`, `say`, `source`\n  and `connected`. Real policy names appear HERE and never in a seat's own\n  observation.\n- `teams`: the K token-type keys (`red`, `blue`, and `green` when K = 3), each\n  `{share, tokensLeft, cells}`. Those are names `chrome_common`'s\n  `TEAM_ORDER` / `teamCol` already know, so the momentum legend gets its\n  colours free.\n- `lead`: `{\"teams\": [...token keys...], \"pts\": [[t, share0, ...], ...]}` \u2014\n  the convention-share time series, shipped WHOLE on the first frame so the\n  momentum curve draws its full width immediately.\n- `beats`: the whole scrubber timeline, also shipped on the first frame. Four\n  kinds and only four: `interact`, `bigpay` (either side cleared 4.00),\n  `leadchange`, and one `over` row at the final tick.\n- `lulls`: `[[from, to], ...]` for every stretch of >= 60 ticks with no\n  resolution, so the auto-skip button has something real to skip.\n- `indices`: `{interactions, coopRate, conventionCounts}`.\n\n## The static replay bundle\n\nThe manifest declares `\"replay_viewer\": {\"bundle\": \"static-replay-viewer\"}`.\nThere is no `/client/replay` pod viewer in the manifest; the platform serves\nthe bundle from\n`/v2/coworlds/replays/static/<cow_id>/<sha>/index.html?replay=<s3 url>`.\n\nThe bundle fetches the `.replay` bytes, hands them to a wasm module compiled\nfrom the SAME Nim sources as the game, and plays back RECORDED STATE \u2014 matrix\ngames records state, not inputs, so playback never re-simulates, a seek is an\narray index, and there is no native/wasm divergence to chase.\n\nThe shell sets `data-replay-loaded=\"true\"` on `<html>` on its first drawn\nframe and `data-replay-error=\"<message>\"` on failure, and posts the\n`coworld-replay` bridge's `ready` message from the callback that fires after\n`data-replay-loaded` is set.\n\nEverything the viewer needs is in the replay bytes: aliases, policy names,\nliveries, camps, the variant, the whole config including both payoff matrices,\nthe seed, the map, the spawner layout, per-tick state, the index summary,\nevery event and the full `results` object. No server is contacted except S3."
+      }
+    }
+  },
+  "player": [
+    {
+      "id": "matrix-games-player",
+      "type": "player",
+      "name": "matrix-games-player",
+      "description": "The reference matrix-games policy: a prompt seat. Supply PLAYER_PROMPT at upload time to field your own strategy.",
+      "image": "{{GAME_IMAGE}}",
+      "run": [
+        "/bin/matrix-games-player"
+      ]
+    },
+    {
+      "id": "matrix-games-counter",
+      "type": "player",
+      "name": "matrix-games-counter",
+      "description": "Plays the best response to whatever the nearest eligible cog last showed. The strongest of the five baselines.",
+      "image": "{{GAME_IMAGE}}",
+      "run": [
+        "/bin/matrix-games-player"
+      ],
+      "env": {
+        "PLAYER_SCRIPTED": "counter"
+      }
+    },
+    {
+      "id": "matrix-games-tit-for-tat",
+      "type": "player",
+      "name": "matrix-games-tit-for-tat",
+      "description": "Mirrors whatever the nearest eligible cog last showed.",
+      "image": "{{GAME_IMAGE}}",
+      "run": [
+        "/bin/matrix-games-player"
+      ],
+      "env": {
+        "PLAYER_SCRIPTED": "tit-for-tat"
+      }
+    },
+    {
+      "id": "matrix-games-fixed-pick",
+      "type": "player",
+      "name": "matrix-games-fixed-pick",
+      "description": "Draws one token type at episode start and commits to it forever.",
+      "image": "{{GAME_IMAGE}}",
+      "run": [
+        "/bin/matrix-games-player"
+      ],
+      "env": {
+        "PLAYER_SCRIPTED": "fixed-pick"
+      }
+    },
+    {
+      "id": "matrix-games-always-first",
+      "type": "player",
+      "name": "matrix-games-always-first",
+      "description": "Always the first token: always-C, always-dove, always-stag, always-Bach, always-rock.",
+      "image": "{{GAME_IMAGE}}",
+      "run": [
+        "/bin/matrix-games-player"
+      ],
+      "env": {
+        "PLAYER_SCRIPTED": "always-first"
+      }
+    },
+    {
+      "id": "matrix-games-always-second",
+      "type": "player",
+      "name": "matrix-games-always-second",
+      "description": "Always the second token: always-D, always-hawk, always-hare, always-Stravinsky.",
+      "image": "{{GAME_IMAGE}}",
+      "run": [
+        "/bin/matrix-games-player"
+      ],
+      "env": {
+        "PLAYER_SCRIPTED": "always-second"
+      }
+    }
+  ],
+  "variants": [
+    {
+      "id": "running-with-scissors",
+      "name": "Running With Scissors",
+      "description": "Cyclic zero-sum: no fixed policy survives.",
+      "game_config": {
+        "num_agents": 8,
+        "matrix": "running-with-scissors",
+        "beats": 12,
+        "ticksPerBeat": 50,
+        "tokenCap": 8,
+        "players": [
+          {
+            "name": "Ash"
+          },
+          {
+            "name": "Birch"
+          },
+          {
+            "name": "Cedar"
+          },
+          {
+            "name": "Dune"
+          },
+          {
+            "name": "Elm"
+          },
+          {
+            "name": "Fern"
+          },
+          {
+            "name": "Gorse"
+          },
+          {
+            "name": "Holly"
+          }
+        ]
+      }
+    },
+    {
+      "id": "prisoners-dilemma",
+      "name": "Prisoners Dilemma",
+      "description": "Conditional cooperation with strangers.",
+      "game_config": {
+        "num_agents": 8,
+        "matrix": "prisoners-dilemma",
+        "beats": 12,
+        "ticksPerBeat": 50,
+        "tokenCap": 8,
+        "players": [
+          {
+            "name": "Ash"
+          },
+          {
+            "name": "Birch"
+          },
+          {
+            "name": "Cedar"
+          },
+          {
+            "name": "Dune"
+          },
+          {
+            "name": "Elm"
+          },
+          {
+            "name": "Fern"
+          },
+          {
+            "name": "Gorse"
+          },
+          {
+            "name": "Holly"
+          }
+        ]
+      }
+    },
+    {
+      "id": "chicken",
+      "name": "Chicken",
+      "description": "Anti-coordination: who yields, with no words.",
+      "game_config": {
+        "num_agents": 8,
+        "matrix": "chicken",
+        "beats": 12,
+        "ticksPerBeat": 50,
+        "tokenCap": 8,
+        "players": [
+          {
+            "name": "Ash"
+          },
+          {
+            "name": "Birch"
+          },
+          {
+            "name": "Cedar"
+          },
+          {
+            "name": "Dune"
+          },
+          {
+            "name": "Elm"
+          },
+          {
+            "name": "Fern"
+          },
+          {
+            "name": "Gorse"
+          },
+          {
+            "name": "Holly"
+          }
+        ]
+      }
+    },
+    {
+      "id": "stag-hunt",
+      "name": "Stag Hunt",
+      "description": "Assurance: risk- versus payoff-dominant equilibria.",
+      "game_config": {
+        "num_agents": 8,
+        "matrix": "stag-hunt",
+        "beats": 12,
+        "ticksPerBeat": 50,
+        "tokenCap": 8,
+        "players": [
+          {
+            "name": "Ash"
+          },
+          {
+            "name": "Birch"
+          },
+          {
+            "name": "Cedar"
+          },
+          {
+            "name": "Dune"
+          },
+          {
+            "name": "Elm"
+          },
+          {
+            "name": "Fern"
+          },
+          {
+            "name": "Gorse"
+          },
+          {
+            "name": "Holly"
+          }
+        ]
+      }
+    },
+    {
+      "id": "bach-or-stravinsky",
+      "name": "Bach Or Stravinsky",
+      "description": "Asymmetric camps; interactions only cross-camp.",
+      "game_config": {
+        "num_agents": 8,
+        "matrix": "bach-or-stravinsky",
+        "beats": 12,
+        "ticksPerBeat": 50,
+        "tokenCap": 8,
+        "players": [
+          {
+            "name": "Ash"
+          },
+          {
+            "name": "Birch"
+          },
+          {
+            "name": "Cedar"
+          },
+          {
+            "name": "Dune"
+          },
+          {
+            "name": "Elm"
+          },
+          {
+            "name": "Fern"
+          },
+          {
+            "name": "Gorse"
+          },
+          {
+            "name": "Holly"
+          }
+        ]
+      }
+    },
+    {
+      "id": "pure-coordination",
+      "name": "Pure Coordination",
+      "description": "Three matches, all paying 1.",
+      "game_config": {
+        "num_agents": 8,
+        "matrix": "pure-coordination",
+        "beats": 12,
+        "ticksPerBeat": 50,
+        "tokenCap": 8,
+        "players": [
+          {
+            "name": "Ash"
+          },
+          {
+            "name": "Birch"
+          },
+          {
+            "name": "Cedar"
+          },
+          {
+            "name": "Dune"
+          },
+          {
+            "name": "Elm"
+          },
+          {
+            "name": "Fern"
+          },
+          {
+            "name": "Gorse"
+          },
+          {
+            "name": "Holly"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rationalizable-coordination",
+      "name": "Rationalizable Coordination",
+      "description": "Three matches, paying 1 / 2 / 3.",
+      "game_config": {
+        "num_agents": 8,
+        "matrix": "rationalizable-coordination",
+        "beats": 12,
+        "ticksPerBeat": 50,
+        "tokenCap": 8,
+        "players": [
+          {
+            "name": "Ash"
+          },
+          {
+            "name": "Birch"
+          },
+          {
+            "name": "Cedar"
+          },
+          {
+            "name": "Dune"
+          },
+          {
+            "name": "Elm"
+          },
+          {
+            "name": "Fern"
+          },
+          {
+            "name": "Gorse"
+          },
+          {
+            "name": "Holly"
+          }
+        ]
+      }
+    }
+  ],
+  "certification": {
+    "game_config": {
+      "num_agents": 8,
+      "seed": 7,
+      "matrix": "prisoners-dilemma",
+      "beats": 6,
+      "ticksPerBeat": 50,
+      "playerConnectTimeoutSeconds": 180,
+      "players": [
+        {
+          "name": "Ash"
+        },
+        {
+          "name": "Birch"
+        },
+        {
+          "name": "Cedar"
+        },
+        {
+          "name": "Dune"
+        },
+        {
+          "name": "Elm"
+        },
+        {
+          "name": "Fern"
+        },
+        {
+          "name": "Gorse"
+        },
+        {
+          "name": "Holly"
+        }
+      ]
+    },
+    "players": [
+      {
+        "player_id": "matrix-games-player"
+      },
+      {
+        "player_id": "matrix-games-counter"
+      },
+      {
+        "player_id": "matrix-games-tit-for-tat"
+      },
+      {
+        "player_id": "matrix-games-fixed-pick"
+      },
+      {
+        "player_id": "matrix-games-always-first"
+      },
+      {
+        "player_id": "matrix-games-always-second"
+      },
+      {
+        "player_id": "matrix-games-counter"
+      },
+      {
+        "player_id": "matrix-games-tit-for-tat"
+      }
+    ]
+  }
+}

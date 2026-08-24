@@ -1,0 +1,9 @@
+nimcache/
+nim.cfg
+dist/
+scratch/
+replay-viewer/dist/
+*.exe
+matrix-games
+matrix-games-player
+node_modules/

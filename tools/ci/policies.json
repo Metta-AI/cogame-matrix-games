@@ -1,0 +1,33 @@
+[
+  {
+    "name": "matrix-games-reader",
+    "run": "/bin/matrix-games-player",
+    "env": {
+      "PLAYER_PROMPT": "Read the room before you commit. Every beat, look at the public log first: which cells have actually been hit, and what did each cog carry into its last interaction? Your score comes only from resolutions, so you must interact - but a cog that hunts with a uniform inventory is donating. Spend one or two beats gathering the token that beats what your intended target is visibly holding, then hunt. If the room has settled into a convention that pays you, keep matching it and take safe interactions often; if it has settled into one that pays you badly, break it - gather the counter and go find the cog that has drifted furthest from the convention. When someone is loaded against you and close, avoid them for a beat rather than feed them. Keep notes naming each cog and the mix it last showed you.",
+      "USE_BEDROCK": "true"
+    }
+  },
+  {
+    "name": "matrix-games-brinkman",
+    "run": "/bin/matrix-games-player",
+    "env": {
+      "PLAYER_PROMPT": "Play for the top of the matrix and accept that it costs you some encounters. Pick the payoff cell you want, commit hard to its token until you are at eight, and hunt only cogs whose visible mix makes that cell land. Deny as a weapon: if the cog with the highest score is clearly building one token, go empty the zone that token comes from before you hunt anyone. Remember every resolution resets you both to a uniform inventory, so time your fights - never fire when you are the one who just got reset. If two beats pass with no interaction, drop the ambition and take whatever encounter is closest; zero is the worst score in this game.",
+      "USE_BEDROCK": "true"
+    },
+    "player": "ply_bac48eb1-662e-44f8-973d-f3e016dccf5d"
+  },
+  {
+    "name": "matrix-games-counter",
+    "run": "/bin/matrix-games-player",
+    "env": {
+      "PLAYER_SCRIPTED": "counter"
+    }
+  },
+  {
+    "name": "matrix-games-tit-for-tat",
+    "run": "/bin/matrix-games-player",
+    "env": {
+      "PLAYER_SCRIPTED": "tit-for-tat"
+    }
+  }
+]

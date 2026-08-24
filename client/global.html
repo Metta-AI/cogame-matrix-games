@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>matrix-games — spectator</title>
+<style>
+  body { margin: 0; background: #14100e; color: #e8ddd0;
+         font: 15px/1.55 ui-monospace, Menlo, Consolas, monospace; }
+  main { max-width: 720px; margin: 0 auto; padding: 48px 24px; }
+  h1 { font-size: 22px; letter-spacing: 0.18em; color: #d63031; margin: 0 0 4px; }
+  h2 { font-size: 13px; letter-spacing: 0.22em; color: #8d6e63;
+       text-transform: uppercase; margin: 28px 0 6px; font-weight: 400; }
+  code, pre { background: #1e1815; color: #f2c14e; border-radius: 3px; }
+  code { padding: 1px 5px; }
+  pre { padding: 12px 14px; overflow-x: auto; }
+  a { color: #4b7bec; }
+</style>
+</head>
+<body>
+<main>
+  <h1>MATRIX GAMES — spectator</h1>
+  <p>Eight cogs in one walled yard, collecting K token types. Your inventory
+  mix IS your strategy; an interaction beam between two cogs resolves the
+  variant's payoff matrix and resets both.</p>
+
+  <h2>Live snapshots</h2>
+  <p>Connect a websocket to <code>/global</code>: the whole
+  <code>matrix.global.v1</code> snapshot arrives as JSON at every beat boundary
+  and at the end — the chrome state frame (paintbot's key set) plus a
+  <code>seats</code> array carrying every cog's position, inventory, mix,
+  score and interaction count. Real policy names appear HERE; a seat's own
+  observation never sees them.</p>
+  <pre>const ws = new WebSocket(`ws://${location.host}/global`);
+ws.onmessage = (e) =&gt; console.log(JSON.parse(e.data));</pre>
+
+  <h2>Watching the board</h2>
+  <p>The rendered board is the replay viewer: a static wasm bundle that reads
+  the recorded per-tick STATE straight out of the replay bytes, so a seek is
+  an array index and playback never re-simulates. It is served here at
+  <a href="/client/replay">/client/replay</a>.</p>
+</main>
+</body>
+</html>
