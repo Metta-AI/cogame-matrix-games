@@ -205,12 +205,36 @@ suite "the wasm viewer packet":
           check derived[i][j].getInt() == recorded[i][j].getInt()
           total += recorded[i][j].getInt()
       check total == state.idx.interactions
+      ## Not vacuous: an empty room would make both histograms all-zero and
+      ## the comparison above would pass while comparing nothing.
+      check state.idx.interactions > 0
+      check total > 0
       check final{"indices"}{"interactions"}.getInt() == state.idx.interactions
       let recordedRate = replay{"indices"}{"coopRate"}
       let derivedRate = final{"indices"}{"coopRate"}
       check derivedRate.kind == recordedRate.kind
       if recordedRate.kind == JFloat:
         check abs(derivedRate.getFloat() - recordedRate.getFloat()) < 1e-9
+
+  test "the live timeline and the replay timeline are the same rows":
+    ## Two derivations again, this time of the scrubber: `broadcast.buildBeats`
+    ## builds the live one from the sim, `initViewer` builds the replay one by
+    ## folding the recorded events. The terminal `over` row is the row the two
+    ## can most easily disagree about -- it is not an event, it is a summary --
+    ## so it is checked field by field alongside the rest.
+    for matrix in ["prisoners-dilemma", "chicken"]:
+      let state = runScripted(matrix, 58, certMix(), beats = 3)
+      let replay = parseReplayBytes(replayBytes(state))
+      let view = initViewer(replay)
+      let live = buildBeats(state)
+      check live.len == view.beats.len
+      check live.len > 1
+      for index in 0 ..< live.len:
+        check live[index] == view.beats[index]
+      let over = view.beats[view.beats.len - 1]
+      check over{"k"}.getStr() == "over"
+      check over{"seat"}.getInt() == state.leader()
+      check over{"cp"}.getInt() == state.cogs[state.leader()].scoreCp
 
 suite "the appended game block":
   setup:

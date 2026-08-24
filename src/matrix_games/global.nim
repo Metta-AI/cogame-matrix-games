@@ -138,7 +138,6 @@ proc initViewer*(replay: JsonNode): ViewerState =
   ## DERIVED from the replay rather than stored in it: the replay carries the
   ## events and the share series, and these are functions of them.
   result.beats = newJArray()
-  var lastLeader = -1
   for index in 0 ..< result.events.len:
     let record = result.events[index]
     case record{"k"}.getStr()
@@ -153,16 +152,25 @@ proc initViewer*(replay: JsonNode): ViewerState =
         "other": record{"col"}.getInt(),
         "cp": max(rowCp, colCp)})
     of "leadchange":
-      lastLeader = record{"seat"}.getInt()
       result.beats.add(%*{
         "t": record{"t"}.getInt(), "k": "leadchange",
-        "seat": lastLeader, "other": -1,
+        "seat": record{"seat"}.getInt(), "other": -1,
         "cp": record{"scoreCp"}.getInt()})
     else:
       discard
+  ## The terminal `over` row is the FINAL FRAME's scores, read with the same
+  ## rule `sim.leader()` uses (highest score, ties to the lowest slot), so the
+  ## row the viewer builds is the row `broadcast.buildBeats` builds. Folding
+  ## the last `leadchange` instead would disagree with it whenever the episode
+  ## ends without one -- and would carry `cp: 0` even when it agreed.
+  var finalScores = newSeq[int](Seats)
+  let lastFrame = result.frames[result.tickCount - 1]
+  for slot in 0 ..< Seats:
+    finalScores[slot] = lastFrame{"sc"}[slot].getInt()
+  let finalLeader = argmaxLowest(finalScores)
   result.beats.add(%*{
     "t": max(0, result.tickCount - 1), "k": "over",
-    "seat": max(0, lastLeader), "other": -1, "cp": 0})
+    "seat": finalLeader, "other": -1, "cp": finalScores[finalLeader]})
 
   result.lulls = newJArray()
   var marks: seq[int] = @[0]
