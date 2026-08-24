@@ -7,13 +7,29 @@ import support/helpers
 import matrix_games/[sim_types, sim_config, matrices, arena_map, sim_state,
   events, kernel, sim, indices]
 
-const HashSeedEnv = "MATRIX_GAMES_HASH_SEED"
+const
+  HashSeedEnv = "MATRIX_GAMES_HASH_SEED"
+  HashChildEnv = "MATRIX_GAMES_HASH_CHILD"
+  HashChildToken = "test_sim determinism child"
+    ## A token this file owns, so child mode is something this test DID and
+    ## never something the environment happened to say.
 
-## Child mode. With MATRIX_GAMES_HASH_SEED set, this binary plays ONE episode
-## and prints its `gameHash`, then exits before any suite runs. The determinism
-## test below spawns it: that is the design note's "and across a fresh
-## SimServer" -- a second, independent process, not a second object in this one.
-if getEnv(HashSeedEnv).len > 0:
+## Child mode. Spawned by `hashInFreshProcess` below with both variables set:
+## the binary plays ONE episode and prints its `gameHash`, then exits before
+## any suite runs. That is the design note's "and across a fresh SimServer" --
+## a second, independent process, not a second object in this one.
+##
+## The seed variable alone does NOT trigger it. If either variable is present
+## without the exact token, this exits NON-ZERO instead: an inherited
+## MATRIX_GAMES_HASH_SEED would otherwise make the whole file print one hash,
+## exit 0, and skip every assertion below -- the payoff formula, the
+## cooldowns, the reset, the BoS row rule, determinism -- with the job still
+## green. A skipped suite must be loud.
+if getEnv(HashSeedEnv).len > 0 or getEnv(HashChildEnv).len > 0:
+  if getEnv(HashChildEnv) != HashChildToken or getEnv(HashSeedEnv).len == 0:
+    quit("test_sim: " & HashSeedEnv & " / " & HashChildEnv & " are set by " &
+      "this test's own determinism child and by nothing else. Refusing to " &
+      "run: the suites below would not have run either.", 2)
   let childSeed = parseInt(getEnv(HashSeedEnv))
   echo runScripted("running-with-scissors", childSeed, certMix()).gameHash()
   quit(0)
@@ -257,9 +273,15 @@ proc hashInFreshProcess(seed: int): string =
   for key, value in envPairs():
     env[key] = value
   env[HashSeedEnv] = $seed
+  env[HashChildEnv] = HashChildToken
   let outcome = execCmdEx(quoteShell(getAppFilename()), env = env)
   check outcome.exitCode == 0
   outcome.output.strip()
+
+proc refusalExitCode(env: StringTableRef): int =
+  ## What the binary does when the child-mode variables are in the environment
+  ## but were not put there by `hashInFreshProcess`.
+  execCmdEx(quoteShell(getAppFilename()), env = env).exitCode
 
 suite "determinism":
   test "the same seed and order script hash identically, twice and afresh":
@@ -277,6 +299,21 @@ suite "determinism":
     let here = runScripted("running-with-scissors", 4242, certMix()).gameHash()
     check hashInFreshProcess(4242) == $here
     check hashInFreshProcess(4243) != $here
+
+  test "a stray child-mode variable fails loudly instead of skipping the file":
+    ## The child mode runs at module scope, before any suite. If it could be
+    ## triggered by an inherited environment variable, this whole file would
+    ## print one hash, exit 0, and run none of its assertions -- green.
+    var env = newStringTable()
+    for key, value in envPairs():
+      env[key] = value
+    env[HashSeedEnv] = "4242"                 ## seed alone: not enough
+    check refusalExitCode(env) == 2
+    env[HashChildEnv] = "something else"      ## wrong token: still not enough
+    check refusalExitCode(env) == 2
+    env.del(HashSeedEnv)
+    env[HashChildEnv] = HashChildToken        ## token without a seed
+    check refusalExitCode(env) == 2
 
   test "every inventory stays inside 0 .. tokenCap for a whole episode":
     let state = runScripted("pure-coordination", 9, certMix())
