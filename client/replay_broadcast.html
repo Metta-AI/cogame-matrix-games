@@ -1450,8 +1450,8 @@ button.beat-marker.ahead { opacity: 0.18; }
 
 /* ---- 360 px ---------------------------------------------------------- */
 /* The embedded featured-match iframe is about 360 px wide, so the chrome is
-   checked THERE, not at desktop width. relayout() toggles #stage.tiny at
-   boardW <= 620; these are the three rules the game block adds on top. */
+   checked THERE, not at desktop width. mgRelayout() toggles #stage.tiny at
+   width < 640; these are the rules the game block adds on top. */
 #stage.tiny .plate.mg .plate-enc,
 #stage.tiny .plate.mg .plate-name,
 #stage.tiny .plate.mg .plate-camp { display: none; }
