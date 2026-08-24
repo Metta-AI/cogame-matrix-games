@@ -224,37 +224,45 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
 
     let client = newLlmClient(config)
     let deadline = config.playDeadlineSeconds()
-    for beat in 0 ..< config.beats:
-      if epochTime() - gameStart > deadline:
-        ## Checked BETWEEN BEATS only. Crossing it settles with
-        ## reason "deadline": the beats played are scored and nothing is
-        ## imputed for the rest.
-        echo "matrix-games: play deadline crossed at beat ", beat
-        gameSim.finish("deadline", "deadline")
-        break
-      var observations = newSeq[JsonNode](shared.seats)
-      var prompts: seq[string]
-      var kinds: seq[ScriptKind]
-      withLock stateLock:
-        prompts = shared.prompts
-        kinds = shared.scripted
-        for slot in 0 ..< shared.seats:
-          observations[slot] = buildObservation(gameSim, slot)
-          if not shared.playerSockets.hasKey(slot):
-            ## A seat that dropped mid-episode plays `counter` for every
-            ## remaining beat. The episode never waits on it.
-            kinds[slot] = skCounter
-        pushStateFrames()
-      let decisions = client.decideAll(observations, prompts, kinds)
-      gameSim.installOrders(decisions)
-      withLock stateLock:
-        refreshSnapshotLocked()
-      gameSim.runBeat()
-      withLock stateLock:
-        refreshSnapshotLocked()
-      echo "matrix-games: beat ", beat, " done, tick ", gameSim.tick,
-        ", ", gameSim.idx.interactions, " resolutions, ",
-        int(epochTime() - gameStart), "s elapsed"
+    ## The beat loop runs on its own thread while `gameServer.serve` keeps
+    ## answering /healthz. An unguarded raise here would kill the thread and
+    ## leave a healthy-looking container with no artifacts and no `quit` --
+    ## a hang, not a failure. Settle with what was played instead.
+    try:
+      for beat in 0 ..< config.beats:
+        if epochTime() - gameStart > deadline:
+          ## Checked BETWEEN BEATS only. Crossing it settles with
+          ## reason "deadline": the beats played are scored and nothing is
+          ## imputed for the rest.
+          echo "matrix-games: play deadline crossed at beat ", beat
+          gameSim.finish("deadline", "deadline")
+          break
+        var observations = newSeq[JsonNode](shared.seats)
+        var prompts: seq[string]
+        var kinds: seq[ScriptKind]
+        withLock stateLock:
+          prompts = shared.prompts
+          kinds = shared.scripted
+          for slot in 0 ..< shared.seats:
+            observations[slot] = buildObservation(gameSim, slot)
+            if not shared.playerSockets.hasKey(slot):
+              ## A seat that dropped mid-episode plays `counter` for every
+              ## remaining beat. The episode never waits on it.
+              kinds[slot] = skCounter
+          pushStateFrames()
+        let decisions = client.decideAll(observations, prompts, kinds)
+        gameSim.installOrders(decisions)
+        withLock stateLock:
+          refreshSnapshotLocked()
+        gameSim.runBeat()
+        withLock stateLock:
+          refreshSnapshotLocked()
+        echo "matrix-games: beat ", beat, " done, tick ", gameSim.tick,
+          ", ", gameSim.idx.interactions, " resolutions, ",
+          int(epochTime() - gameStart), "s elapsed"
+    except CatchableError as error:
+      echo "matrix-games: beat loop failed, settling early: ", error.msg
+      gameSim.finish("deadline", "deadline")
     if not gameSim.done:
       gameSim.finish("complete", "full_match")
     withLock stateLock:
