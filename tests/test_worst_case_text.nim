@@ -100,3 +100,11 @@ suite "the feed bounds a full-cap remark":
     check chipAt > 0
     let chipRule = page[chipAt ..< page.find("}", chipAt)]
     check "text-overflow: ellipsis" in chipRule
+
+  test "the feed the smoke harness counts is the feed the page fills":
+    ## viewer_smoke.mjs reads `#feed, .feed, #log`; this page's remark feed is
+    ## the inherited `#killfeed`, so without the class every CI run reports
+    ## feed_lines: 0 and no artifact says whether the feed drew anything.
+    let page = readFile(repoRoot() / "client" / "replay_broadcast.html")
+    check "id=\"killfeed\" class=\"feed\"" in page
+    check "mgId('killfeed')" in page

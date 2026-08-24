@@ -1528,7 +1528,13 @@ button.beat-marker.ahead { opacity: 0.18; }
     </div>
 
     <div id="bannerlane"></div>
-    <div id="killfeed"></div>
+    <!-- MATRIX-GAMES: the inherited kill feed carries this game's remark
+         feed. `class="feed"` is not styled by anything (the rules are all
+         `.feed-row`); it is there so tools/ci/viewer_smoke.mjs, whose feed
+         selector is `#feed, .feed, #log`, actually counts these rows.
+         Without it every CI run reports `feed_lines: 0` and no artifact ever
+         shows whether the feed drew anything at all. -->
+    <div id="killfeed" class="feed"></div>
 
     <!-- MATRIX-GAMES: the K x K payoff panel, the one-line index readout and
          the token colour key. All three live INSIDE #chrome and none of them
