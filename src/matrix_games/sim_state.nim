@@ -118,7 +118,12 @@ proc initSim*(config: GameConfig): Sim =
   result.rng = initPcg32(cfg.seed)
   result.tick = 0
   result.beat = 0
-  result.lastLeader = -1
+  ## Seeded with the leader of the OPENING state, not -1. Every score is zero
+  ## at tick 0 and `leader()` breaks the tie to slot 0, so a -1 seed made rule
+  ## 9 fire on the very first tick and put a "Lead change" marker at t = 0 on
+  ## every scrubber. Rule 9 emits when the leader differs from LAST TICK; at
+  ## tick 0 there is no last tick, so the opening leader is the baseline.
+  result.lastLeader = 0
   result.reason = ""
   result.ending = ""
   result.zones = buildZones(result.spec)
