@@ -11,7 +11,6 @@
 ##                                   artifacts are written
 ##   GET /client/player?slot&token   the seat's HTML shell (view-only)
 ##   GET /client/global              the broadcast client
-##   GET /client/replay              the same page, for a local replay open
 ##   GET /client/<asset>             chrome_common.js, broadcast_core.js, art
 ##   WS  /player?slot=N&token=T      the seat socket; a bad token is refused
 ##                                   with a close frame, never a hang
@@ -303,11 +302,6 @@ proc globalPageHandler(request: Request) {.gcsafe.} =
     serveFile(request, clientDir() / "global.html",
       "text/html; charset=utf-8")
 
-proc replayPageHandler(request: Request) {.gcsafe.} =
-  {.gcsafe.}:
-    serveFile(request, clientDir() / "replay_broadcast.html",
-      "text/html; charset=utf-8")
-
 proc clientAssetHandler(request: Request) {.gcsafe.} =
   {.gcsafe.}:
     let name = request.pathParams["name"]
@@ -446,7 +440,6 @@ proc buildRouter(replayMode: bool): Router =
   result.get("/healthz", healthzHandler)
   result.get("/client/player", playerPageHandler)
   result.get("/client/global", globalPageHandler)
-  result.get("/client/replay", replayPageHandler)
   result.get("/client/@name", clientAssetHandler)
   result.get("/replay-data", replayDataHandler)
   result.get("/global", globalUpgradeHandler)

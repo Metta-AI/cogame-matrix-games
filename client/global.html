@@ -36,8 +36,9 @@ ws.onmessage = (e) =&gt; console.log(JSON.parse(e.data));</pre>
   <h2>Watching the board</h2>
   <p>The rendered board is the replay viewer: a static wasm bundle that reads
   the recorded per-tick STATE straight out of the replay bytes, so a seek is
-  an array index and playback never re-simulates. It is served here at
-  <a href="/client/replay">/client/replay</a>.</p>
+  an array index and playback never re-simulates. The platform serves that
+  bundle from its own static path; this container never serves a replay
+  page.</p>
 </main>
 </body>
 </html>
