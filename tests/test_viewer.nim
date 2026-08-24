@@ -185,6 +185,33 @@ suite "the wasm viewer packet":
     check first{"meta"}{"policyNames"}.len == Seats
     check first{"meta"}{"spawners"}.len == replay{"spawners"}.len
 
+  test "the viewer's re-derived indices agree with the recorded ones":
+    ## `replay.indices` is the sim's running accumulator; the viewer recomputes
+    ## the same quantities by folding the recorded `interact` events forward.
+    ## Two derivations of one set of resolutions: if they ever disagree, one of
+    ## them is wrong and the matrix panel is lying about the room.
+    for matrix in ["prisoners-dilemma", "running-with-scissors"]:
+      let state = runScripted(matrix, 58, certMix(), beats = 3)
+      let replay = parseReplayBytes(replayBytes(state))
+      let view = initViewer(replay)
+      let recorded = replay{"indices"}{"conventionCounts"}
+      let final = view.chromeStateAt(view.tickCount - 1, false)
+      let derived = final{"indices"}{"conventionCounts"}
+      check derived.len == recorded.len
+      var total = 0
+      for i in 0 ..< recorded.len:
+        check derived[i].len == recorded[i].len
+        for j in 0 ..< recorded[i].len:
+          check derived[i][j].getInt() == recorded[i][j].getInt()
+          total += recorded[i][j].getInt()
+      check total == state.idx.interactions
+      check final{"indices"}{"interactions"}.getInt() == state.idx.interactions
+      let recordedRate = replay{"indices"}{"coopRate"}
+      let derivedRate = final{"indices"}{"coopRate"}
+      check derivedRate.kind == recordedRate.kind
+      if recordedRate.kind == JFloat:
+        check abs(derivedRate.getFloat() - recordedRate.getFloat()) < 1e-9
+
 suite "the appended game block":
   setup:
     let block4 = gameBlock()
