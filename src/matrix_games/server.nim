@@ -52,6 +52,9 @@ var
 
 initLock(stateLock)
 
+const ReplayPageAsset = "replay_broadcast.html"
+  ## The static bundle's source page. Never served by this container.
+
 proc clientDir(): string =
   let appDir = getAppDir()
   for candidate in [appDir / "client", appDir / ".." / "client", "client"]:
@@ -344,10 +347,21 @@ proc globalPageHandler(request: Request) {.gcsafe.} =
     serveFile(request, clientDir() / "global.html",
       "text/html; charset=utf-8")
 
+proc servableClientAsset*(name: string): bool =
+  ## The `/client/<asset>` policy, in one place so it can be tested: no path
+  ## traversal, no dotfiles, and never the broadcast page. That page is a
+  ## BUILD INPUT -- `Dockerfile.replay-viewer` splices it into the static
+  ## bundle and the platform serves the bundle from S3. The pod has no replay
+  ## page (checklist item 3); serving this document under its filename would
+  ## be the `/client/replay` route F59 removed, with a longer name.
+  if name.len == 0 or "/" in name or "\\" in name or name.startsWith("."):
+    return false
+  name != ReplayPageAsset
+
 proc clientAssetHandler(request: Request) {.gcsafe.} =
   {.gcsafe.}:
     let name = request.pathParams["name"]
-    if "/" in name or "\\" in name or name.startsWith("."):
+    if not servableClientAsset(name):
       request.respond(404)
       return
     let contentType =

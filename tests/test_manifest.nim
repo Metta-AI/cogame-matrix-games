@@ -2,7 +2,7 @@
 ## repo CI can check first.
 
 import std/[json, os, strutils, unittest]
-import matrix_games/[sim_types, sim_config, matrices]
+import matrix_games/[sim_types, sim_config, matrices, server]
 
 proc repoRoot(): string =
   currentSourcePath().parentDir().parentDir()
@@ -63,6 +63,15 @@ suite "coworld_manifest_template.json":
     check game{"replay_viewer"}{"bundle"}.getStr() == "static-replay-viewer"
     check game{"replay_viewer"}{"url"} == nil
     check "/client/replay" notin $game{"runnable"}
+    ## And no pod path serves the broadcast page under ANY name: the asset
+    ## route refuses it, so the only replay viewer is the S3 bundle.
+    check not servableClientAsset("replay_broadcast.html")
+    check not servableClientAsset("../client/replay_broadcast.html")
+    check not servableClientAsset(".env")
+    ## The assets the two live pages really do need are still served.
+    for name in ["chrome_common.js", "broadcast_core.js", "global.html",
+        "player.html"]:
+      check servableClientAsset(name)
 
   test "docs are text objects with a readme and non-empty pages":
     check game{"docs"}{"readme"}{"type"}.getStr() == "text"
