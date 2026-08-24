@@ -120,6 +120,52 @@ suite "the chrome state frame":
       check span[1].getInt() <= state.tick
 
 suite "the wasm viewer packet":
+  test "every tick of the packet is the sim's own state at that tick":
+    ## Matrix Games records STATE, not inputs, so there is no re-simulation to
+    ## compare against: the recorded frame IS the source of truth, and what has
+    ## to be proved is that the viewer's per-tick readout reproduces the sim's
+    ## per-tick state exactly -- board frame, chrome seats and token map, tick
+    ## by tick, with nothing derived from a parallel recording.
+    let run = runScriptedRecording("prisoners-dilemma", 57, certMix(),
+      beats = 3)
+    let replay = parseReplayBytes(replayBytes(run.state))
+    let view = initViewer(replay)
+    check view.tickCount == run.state.tick
+    check view.tickCount == run.live.len
+    for t in 0 ..< view.tickCount:
+      let packet = view.viewerPacket(t, t == 0)
+      check packet{"t"}.getInt() == t
+      let board = packet{"b"}
+      let seats = packet{"s"}{"seats"}
+      check board{"t"}.getInt() == t
+      let live = run.live[t]
+      for slot in 0 ..< Seats:
+        let want = live{"seats"}[slot]
+        ## What the wasm renderer draws.
+        check board{"c"}[slot * 4 + 0].getInt() == want{"x"}.getInt()
+        check board{"c"}[slot * 4 + 1].getInt() == want{"y"}.getInt()
+        check board{"c"}[slot * 4 + 2].getInt() == want{"facing"}.getInt()
+        check board{"c"}[slot * 4 + 3].getInt() == want{"freeze"}.getInt()
+        check board{"sc"}[slot].getInt() == want{"scoreCp"}.getInt()
+        for i in 0 ..< view.k:
+          check board{"inv"}[slot * view.k + i].getInt() ==
+            want{"inv"}[i].getInt()
+        ## What the page draws, which the viewer derives from that same frame
+        ## (plus a forward fold of the recorded events for the cumulative
+        ## counts -- this is what checks that fold against the sim).
+        let seat = seats[slot]
+        check seat{"x"}.getInt() == want{"x"}.getInt()
+        check seat{"y"}.getInt() == want{"y"}.getInt()
+        check seat{"facing"}.getInt() == want{"facing"}.getInt()
+        check seat{"frozen"}.getBool() == (want{"freeze"}.getInt() > 0)
+        check seat{"scoreCp"}.getInt() == want{"scoreCp"}.getInt()
+        check seat{"interactions"}.getInt() ==
+          want{"interactions"}.getInt()
+        for i in 0 ..< view.k:
+          check seat{"inv"}[i].getInt() == want{"inv"}[i].getInt()
+      for index in 0 ..< live{"tok"}.len:
+        check board{"tok"}[index].getInt() == live{"tok"}[index].getInt()
+
   test "a recorded replay replays into the same chrome frame shape":
     let state = runScripted("running-with-scissors", 53, certMix(), beats = 3)
     let replay = parseReplayBytes(replayBytes(state))
