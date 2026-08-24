@@ -69,6 +69,17 @@ proc playDeadlineSeconds*(config: GameConfig): float =
   ## and play must settle inside 60 % of it.
   0.6 * config.episodeTimeoutSeconds.float
 
+proc beatBudgetSeconds*(config: GameConfig): int =
+  ## The worst case for ONE beat: the decision batch plus its single retry.
+  ## The design note's arithmetic, per beat (design.md, "the play budget").
+  2 * config.llmTimeoutSeconds
+
+proc startupBudgetSeconds*(config: GameConfig): int =
+  ## Everything spent before the first beat can start. The play deadline is
+  ## measured from PROCESS START, so the connect wait and the registration
+  ## grace come out of the same budget.
+  config.playerConnectTimeoutSeconds + RegistrationGraceSeconds
+
 proc validate*(config: GameConfig) =
   if config.numAgents != Seats:
     raise newException(MatrixGamesError,
@@ -94,12 +105,23 @@ proc validate*(config: GameConfig) =
   ## START, so the connect wait and the registration grace are spent out of
   ## the same budget and are counted here -- otherwise the note's headroom is
   ## imaginary and a config that cannot finish in time starts anyway.
-  let worst = config.playerConnectTimeoutSeconds + RegistrationGraceSeconds +
-    config.beats * 2 * config.llmTimeoutSeconds
+  ##
+  ## What is REQUIRED is that the startup wait plus ONE beat fit, not that all
+  ## `beats` of them do. `game.config_schema` publishes `beats` up to 24, and
+  ## a cross-field budget like this one cannot be expressed in JSON Schema, so
+  ## demanding the full worst case here made schema-legal configs (beats 14..24
+  ## at the shipped timeouts) exit 2 before the server started. They now start
+  ## and DEGRADE as designed: `server.runGame` refuses to open a beat that
+  ## cannot finish before the deadline and settles with reason "deadline",
+  ## which keeps the episode inside 60 % of `episodeTimeoutSeconds` either way.
+  ## A config with no room for even one beat is still a hard error: there is
+  ## nothing to degrade to.
+  let worst = config.startupBudgetSeconds() + config.beatBudgetSeconds()
   if worst.float > config.playDeadlineSeconds():
     raise newException(MatrixGamesError,
-      "playerConnectTimeoutSeconds + 3 + beats x 2 x llmTimeoutSeconds (" &
-      $worst & " s) must fit inside 60% of episodeTimeoutSeconds (" &
+      "playerConnectTimeoutSeconds + " & $RegistrationGraceSeconds &
+      " + 2 x llmTimeoutSeconds (" & $worst &
+      " s) must fit inside 60% of episodeTimeoutSeconds (" &
       $int(config.playDeadlineSeconds()) & " s)")
 
 proc update*(config: var GameConfig, configJson: string) =

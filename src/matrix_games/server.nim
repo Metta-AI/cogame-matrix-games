@@ -161,9 +161,12 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
     ## Stamped BEFORE the connect wait on purpose: the 720 s play deadline
     ## bounds the WHOLE episode, connect time included, so the container
     ## always settles inside 60 % of episodeTimeoutSeconds. `validate()`
-    ## enforces the arithmetic that makes that fit --
+    ## enforces the floor that makes that possible --
     ## playerConnectTimeoutSeconds (180) + registration grace (3) +
-    ## beats x 2 x llmTimeoutSeconds (480) = 663 s <= 720 s.
+    ## one beat's 2 x llmTimeoutSeconds (40) = 223 s <= 720 s -- and the beat
+    ## loop below refuses to open a beat whose worst case would run past the
+    ## deadline, so at the shipped 12 beats (663 s) every beat is played and
+    ## at a longer `beats` the episode truncates instead of overrunning.
     let gameStart = epochTime()
     let connectDeadline =
       gameStart + config.playerConnectTimeoutSeconds.float
@@ -223,17 +226,24 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
 
     let client = newLlmClient(config)
     let deadline = config.playDeadlineSeconds()
+    let beatBudget = config.beatBudgetSeconds().float
     ## The beat loop runs on its own thread while `gameServer.serve` keeps
     ## answering /healthz. An unguarded raise here would kill the thread and
     ## leave a healthy-looking container with no artifacts and no `quit` --
     ## a hang, not a failure. Settle with what was played instead.
     try:
       for beat in 0 ..< config.beats:
-        if epochTime() - gameStart > deadline:
-          ## Checked BETWEEN BEATS only. Crossing it settles with
-          ## reason "deadline": the beats played are scored and nothing is
-          ## imputed for the rest.
-          echo "matrix-games: play deadline crossed at beat ", beat
+        if epochTime() - gameStart + beatBudget > deadline:
+          ## Checked BETWEEN BEATS only, and against the budget the beat
+          ## ABOUT TO START can spend (one batch plus its retry), so the
+          ## episode settles INSIDE the deadline rather than one beat past
+          ## it. Crossing it settles with reason "deadline": the beats played
+          ## are scored and nothing is imputed for the rest. This is what
+          ## lets `validate()` accept every `beats` the config schema
+          ## publishes -- a long episode is truncated, never a startup error
+          ## and never an overrun.
+          echo "matrix-games: play deadline reached at beat ", beat,
+            " (", int(epochTime() - gameStart), "s of ", int(deadline), "s)"
           gameSim.finish("deadline", "deadline")
           break
         var observations = newSeq[JsonNode](shared.seats)

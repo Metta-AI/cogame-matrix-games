@@ -129,6 +129,38 @@ suite "coworld_manifest_template.json":
     check properties{"shutdownGraceSeconds"}{"default"}.getInt() ==
       defaults.shutdownGraceSeconds
 
+  test "every beats value the config schema publishes starts the game":
+    ## `validate()` and `game.config_schema` are ONE contract: a config the
+    ## published schema accepts must not make the container exit 2 before the
+    ## server starts (`src/matrix_games.nim`). A `beats` the play budget cannot
+    ## carry is truncated by the beat loop's deadline check, not refused.
+    let properties = game{"config_schema"}{"properties"}
+    let beats = properties{"beats"}
+    for value in beats{"minimum"}.getInt() .. beats{"maximum"}.getInt():
+      var config = defaultGameConfig()
+      config.beats = value
+      config.validate()
+    ## The two other fields the budget reads, each at its published maximum.
+    var slowConnect = defaultGameConfig()
+    slowConnect.playerConnectTimeoutSeconds =
+      properties{"playerConnectTimeoutSeconds"}{"maximum"}.getInt()
+    slowConnect.validate()
+    var slowModel = defaultGameConfig()
+    slowModel.llmTimeoutSeconds =
+      properties{"llmTimeoutSeconds"}{"maximum"}.getInt()
+    slowModel.validate()
+
+  test "a config with no room for a single beat is still refused":
+    ## The floor the budget check still enforces: a cross-field constraint
+    ## cannot be written in JSON Schema, so this one is the game's to keep.
+    var config = defaultGameConfig()
+    config.episodeTimeoutSeconds = 300      ## 180 s of play deadline
+    config.playerConnectTimeoutSeconds = 180
+    config.llmTimeoutSeconds = 20           ## 180 + 3 + 40 = 223 > 180
+    expect MatrixGamesError:
+      config.validate()
+    check config.startupBudgetSeconds() + config.beatBudgetSeconds() == 223
+
   test "results_schema allows null exploitability and null coopRate":
     let properties = game{"results_schema"}{"properties"}
     var kinds: seq[string]
