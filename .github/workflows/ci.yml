@@ -310,10 +310,20 @@ jobs:
           # 10 s of real playback -- the design note's pass condition. The cert
           # fixture's episode is 300 ticks = 12.5 s at 24 fps, deliberately
           # longer than the soak.
+          #
+          # --strict-text-bounds: the yard is a FIXED 24 x 14 arena that always
+          # fits the frame (nothing pans, nothing is parked off-screen on
+          # purpose), so no string this viewer draws on the canvas may live its
+          # whole life outside it -- `canvas_text.never_inside` must be 0
+          # (checklist item 15, cogchemists 2026-08-24). Today every string a
+          # spectator reads is DOM text laid out by CSS and the count is 0 of
+          # 0; the flag is what makes the first canvas caption that is drawn
+          # with nowhere to go turn the job red instead of merely logging it.
           node tools/ci/viewer_smoke.mjs \
             --bundle dist/static-replay-viewer \
             --replay "${replay}" \
             --soak 10 \
+            --strict-text-bounds \
             --timeout 90
 
       - name: Upload the viewer smoke evidence
