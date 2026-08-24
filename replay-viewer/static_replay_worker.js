@@ -74,10 +74,14 @@ function copyIntoRuntime(bytes, callback) {
   }
 }
 
+function currentPacket() {
+  return JSON.parse(decodeString(Module._mg_packet_ptr(), Module._mg_packet_len()));
+}
+
 function packetAt(tick) {
   var got = Module._mg_frame(tick);
   if (got < 0) throw new Error(runtimeError());
-  return JSON.parse(decodeString(Module._mg_packet_ptr(), Module._mg_packet_len()));
+  return currentPacket();
 }
 
 async function loadArt(base, files) {
@@ -131,7 +135,12 @@ async function start() {
     });
     if (!ok) throw new Error(runtimeError());
     runtimeLoaded = true;
-    var first = packetAt(0);
+    // Read the packet mg_load_replay just built: it is the ONLY packet that
+    // carries `meta` (renderCurrent emits it once, on the first build). Going
+    // through packetAt(0) here would call mg_frame(0), rebuild the packet
+    // with firstPacketDone=true, and lose the meta — the starter's worker
+    // likewise ingests after load without calling _ctf_frame first.
+    var first = currentPacket();
     meta = first.meta;
     tickCount = Math.max(1, first.s.mx);
     await loadArt(self.location.href, artFiles(meta.variant));
