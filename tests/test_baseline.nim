@@ -50,6 +50,34 @@ suite "scripted baselines":
             state.installOrders(decisions)
             state.runBeat()
 
+  test "an all-scripted episode reaches its natural end and reports complete":
+    ## Checklist item 7. The end of the episode is the SERVER's own settle --
+    ## `sim.settleComplete()`, the call `src/matrix_games/server.nim` makes when
+    ## the beat loop falls out -- not a reason the harness stamps on the way
+    ## past, so an early settle (`deadline`, `forfeit`) inside that path would
+    ## fail here. Every order the episode played is bounds-checked on the way in.
+    for matrix in MatrixNames:
+      var state = initSim(testConfig(matrix, 11, beats = 4))
+      let kinds = certMix()
+      for beat in 0 ..< state.config.beats:
+        var decisions = newSeq[Decision](Seats)
+        for slot in 0 ..< Seats:
+          let obs = buildObservation(state, slot)
+          let order = scriptedOrder(obs, kinds[slot])
+          checkOrder(order, obs, slot)
+          decisions[slot] = Decision(order: order, source: osScripted)
+        state.installOrders(decisions)
+        state.runBeat()
+      check not state.done          ## nothing settled it early
+      state.settleComplete()
+      let results = resultsJson(state)
+      check results{"reason"}.getStr() == "complete"
+      check results{"ending"}.getStr() == "full_match"
+      ## The NATURAL end: every beat played, every tick of every beat run.
+      check results{"beats"}.getInt() == state.config.beats
+      check results{"ticks"}.getInt() ==
+        state.config.beats * state.config.ticksPerBeat
+
   test "no cog ever occupies a wall cell or shares one, inv stays in range":
     for matrix in MatrixNames:
       for kind in AllKinds:

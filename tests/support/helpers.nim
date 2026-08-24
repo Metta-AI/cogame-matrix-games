@@ -32,7 +32,7 @@ proc runScripted*(matrix: string, seed: int, kinds: seq[ScriptKind],
         kinds[slot], osScripted)
     state.installOrders(decisions)
     state.runBeat()
-  state.finish("complete", "full_match")
+  state.settleComplete()
   state
 
 proc tickSnapshot*(state: Sim): JsonNode =
@@ -71,7 +71,7 @@ proc runScriptedRecording*(matrix: string, seed: int, kinds: seq[ScriptKind],
       state.stepOnce()
       live.add(state.tickSnapshot())
     state.closeBeat()
-  state.finish("complete", "full_match")
+  state.settleComplete()
   (state, live)
 
 proc uniform*(kind: ScriptKind): seq[ScriptKind] =

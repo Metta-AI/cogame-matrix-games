@@ -262,8 +262,7 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
     except CatchableError as error:
       echo "matrix-games: beat loop failed, settling early: ", error.msg
       gameSim.finish("deadline", "deadline")
-    if not gameSim.done:
-      gameSim.finish("complete", "full_match")
+    gameSim.settleComplete()
     withLock stateLock:
       ## One last observation to every seat, so a policy sees the state it
       ## finished in before the `final` frame arrives.

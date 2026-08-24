@@ -187,6 +187,15 @@ proc finish*(sim: var Sim, reason, ending: string) =
   sim.record("end", %*{
     "t": sim.tick, "reason": reason, "ending": ending, "scoreCp": scores})
 
+proc settleComplete*(sim: var Sim) =
+  ## The end of the beat loop, in ONE place: an episode that played every beat
+  ## without settling early ends `complete` / `full_match`. `server.runGame`
+  ## calls this when the loop falls out, and so does every harness that plays a
+  ## full episode, so the reason a test asserts is the reason production
+  ## stamps rather than a second, parallel stamp that can drift from it.
+  if not sim.done:
+    sim.finish("complete", "full_match")
+
 # ---- installing a beat's decisions -------------------------------------
 
 proc installOrders*(sim: var Sim, decisions: seq[Decision]) =

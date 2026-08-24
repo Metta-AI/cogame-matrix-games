@@ -366,9 +366,22 @@ if not results_schema:
 check_schema(results, results_schema, "results")
 print(f"results.json validates against game.results_schema ({len(results)} keys)")
 
+# The end reason, ASSERTED and not merely printed. This smoke runs every seat
+# on its scripted baseline with no ANTHROPIC_API_KEY, so the episode plays all
+# of its beats and the only legal outcome is "complete". The schema check above
+# cannot catch this: `reason` is an enum of complete/deadline/forfeit, so an
+# episode that crossed the play deadline, settled out of the beat loop's
+# except branch, or forfeited because no seat connected writes a
+# schema-VALID results.json and would sail through with a printed line nobody
+# reads.
 reason = results.get("reason") or results.get("end_reason")
-if reason is not None:
-    print(f"episode end reason: {reason}")
+if reason != "complete":
+    raise SystemExit(
+        f"EPISODE-REASON FAIL: results.reason is {reason!r}, expected 'complete'. "
+        "The all-scripted smoke episode must play to its natural end; "
+        "'deadline' or 'forfeit' here means the container did not finish the match."
+    )
+print(f"episode end reason: {reason}")
 
 replay_path = work / "replay.json"
 if not replay_path.exists() or replay_path.stat().st_size == 0:
