@@ -268,7 +268,7 @@ done
 # --------------------------------------------------------------------------
 # Assert the artifacts.
 # --------------------------------------------------------------------------
-if ! python3 - "${work_dir}" "${seats}" "${require_replay_json}" <<'PY'
+if ! python3 - "${work_dir}" "${seats}" "${require_replay_json}" "${manifest}" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -276,6 +276,7 @@ from pathlib import Path
 work = Path(sys.argv[1])
 seats = int(sys.argv[2])
 require_replay_json = sys.argv[3] not in ("0", "", "false", "no")
+manifest_path = sys.argv[4]
 
 failure = work / "player_failure.json"
 if failure.exists():
@@ -298,6 +299,72 @@ for key in ("names", "scores"):
             raise SystemExit(f"results.{key} has {len(results[key])} entries, expected {seats}")
     else:
         print(f"WARNING: results.json has no '{key}' key")
+
+# The episode's own results.json, checked against the schema the manifest
+# publishes for it. The platform validates results with that schema, so a
+# results object the game writes but the schema rejects is a certification
+# failure this smoke would otherwise have passed. Only the JSON-Schema
+# keywords the manifest actually uses are implemented -- no dependency on
+# `jsonschema` being installed on the runner.
+def check_schema(node, schema, where):
+    types = schema.get("type")
+    if types is not None:
+        if isinstance(types, str):
+            types = [types]
+        ok = False
+        for kind in types:
+            if kind == "object":
+                ok = ok or isinstance(node, dict)
+            elif kind == "array":
+                ok = ok or isinstance(node, list)
+            elif kind == "string":
+                ok = ok or isinstance(node, str)
+            elif kind == "integer":
+                ok = ok or (isinstance(node, int) and not isinstance(node, bool))
+            elif kind == "number":
+                ok = ok or (isinstance(node, (int, float)) and not isinstance(node, bool))
+            elif kind == "boolean":
+                ok = ok or isinstance(node, bool)
+            elif kind == "null":
+                ok = ok or node is None
+        if not ok:
+            raise SystemExit(f"RESULTS-SCHEMA FAIL: {where} is {node!r}, expected type {types}")
+    if "enum" in schema and node not in schema["enum"]:
+        raise SystemExit(f"RESULTS-SCHEMA FAIL: {where} is {node!r}, not one of {schema['enum']}")
+    if isinstance(node, (int, float)) and not isinstance(node, bool):
+        if "minimum" in schema and node < schema["minimum"]:
+            raise SystemExit(f"RESULTS-SCHEMA FAIL: {where} is {node!r}, below minimum {schema['minimum']}")
+        if "maximum" in schema and node > schema["maximum"]:
+            raise SystemExit(f"RESULTS-SCHEMA FAIL: {where} is {node!r}, above maximum {schema['maximum']}")
+    if isinstance(node, list):
+        if "minItems" in schema and len(node) < schema["minItems"]:
+            raise SystemExit(f"RESULTS-SCHEMA FAIL: {where} has {len(node)} items, minItems {schema['minItems']}")
+        if "maxItems" in schema and len(node) > schema["maxItems"]:
+            raise SystemExit(f"RESULTS-SCHEMA FAIL: {where} has {len(node)} items, maxItems {schema['maxItems']}")
+        item_schema = schema.get("items")
+        if isinstance(item_schema, dict):
+            for index, item in enumerate(node):
+                check_schema(item, item_schema, f"{where}[{index}]")
+    if isinstance(node, dict):
+        properties = schema.get("properties") or {}
+        for key in schema.get("required") or []:
+            if key not in node:
+                raise SystemExit(f"RESULTS-SCHEMA FAIL: {where} is missing required key '{key}'")
+        if schema.get("additionalProperties") is False:
+            for key in node:
+                if key not in properties:
+                    raise SystemExit(f"RESULTS-SCHEMA FAIL: {where} carries undeclared key '{key}'")
+        for key, sub in properties.items():
+            if key in node:
+                check_schema(node[key], sub, f"{where}.{key}")
+
+
+manifest = json.load(open(manifest_path))
+results_schema = ((manifest.get("game") or {}).get("results_schema")) or {}
+if not results_schema:
+    raise SystemExit("RESULTS-SCHEMA FAIL: the manifest declares no game.results_schema")
+check_schema(results, results_schema, "results")
+print(f"results.json validates against game.results_schema ({len(results)} keys)")
 
 reason = results.get("reason") or results.get("end_reason")
 if reason is not None:
