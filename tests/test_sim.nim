@@ -2,10 +2,21 @@
 ## the cooldowns, the endowment reset, the bach-or-stravinsky row rule, BFS
 ## tie-breaking, blocked movement, and DETERMINISM.
 
-import std/[json, unittest]
+import std/[json, os, osproc, strtabs, strutils, unittest]
 import support/helpers
 import matrix_games/[sim_types, sim_config, matrices, arena_map, sim_state,
   events, kernel, sim, indices]
+
+const HashSeedEnv = "MATRIX_GAMES_HASH_SEED"
+
+## Child mode. With MATRIX_GAMES_HASH_SEED set, this binary plays ONE episode
+## and prints its `gameHash`, then exits before any suite runs. The determinism
+## test below spawns it: that is the design note's "and across a fresh
+## SimServer" -- a second, independent process, not a second object in this one.
+if getEnv(HashSeedEnv).len > 0:
+  let childSeed = parseInt(getEnv(HashSeedEnv))
+  echo runScripted("running-with-scissors", childSeed, certMix()).gameHash()
+  quit(0)
 
 suite "the arena":
   test "the committed map is 24 x 14, symmetric, connected and 216 free":
@@ -240,6 +251,16 @@ suite "the tick rules":
                        state.cogs[a].y == state.cogs[b].y)
       state.closeBeat()
 
+proc hashInFreshProcess(seed: int): string =
+  ## The same episode, played by a freshly started process of this binary.
+  var env = newStringTable()
+  for key, value in envPairs():
+    env[key] = value
+  env[HashSeedEnv] = $seed
+  let outcome = execCmdEx(quoteShell(getAppFilename()), env = env)
+  check outcome.exitCode == 0
+  outcome.output.strip()
+
 suite "determinism":
   test "the same seed and order script hash identically, twice and afresh":
     let first = runScripted("running-with-scissors", 4242, certMix())
@@ -249,6 +270,13 @@ suite "determinism":
     check first.scores() == second.scores()
     let other = runScripted("running-with-scissors", 4243, certMix())
     check other.gameHash() != first.gameHash()
+
+  test "a fresh process reproduces the same hash from the same seed":
+    ## Not another `Sim` in this process: a new one, with its own globals, its
+    ## own RNG state and its own heap.
+    let here = runScripted("running-with-scissors", 4242, certMix()).gameHash()
+    check hashInFreshProcess(4242) == $here
+    check hashInFreshProcess(4243) != $here
 
   test "every inventory stays inside 0 .. tokenCap for a whole episode":
     let state = runScripted("pure-coordination", 9, certMix())
