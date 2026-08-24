@@ -333,11 +333,11 @@ proc extractJsonObject*(text: string): JsonNode =
   let start = text.find('{')
   let stop = text.rfind('}')
   if start < 0 or stop <= start:
-    var head = text.strip()
-    if head.len > 160:
-      head = head[0 ..< 160] & "..."
+    ## RUNE boundaries, never bytes: this branch fires precisely on a prose
+    ## reply, and a prose preamble is where the multi-byte characters are.
+    ## `cleanText` strips, folds newlines to spaces and cuts on runes.
     raise newException(MatrixGamesError,
-      "no JSON object in response: " & head.replace("\n", " "))
+      "no JSON object in response: " & cleanText(text, 160))
   parseJson(text[start .. stop])
 
 proc parseIntent*(text: string): Intent =

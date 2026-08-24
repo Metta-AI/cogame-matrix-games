@@ -30,6 +30,17 @@ suite "reply extraction":
     expect MatrixGamesError:
       discard extractJsonObject("I decline to answer.")
 
+  test "the echoed head of a prose reply is cut on runes, not bytes":
+    ## This branch fires precisely on a prose preamble, which is where the
+    ## multi-byte characters are: a byte slice at 160 lands mid-rune and puts
+    ## invalid UTF-8 into the message (the bullwhip bug).
+    try:
+      discard extractJsonObject(repeat("\u4e2d", 300) & " sorry, no object")
+      check false
+    except MatrixGamesError as error:
+      check validateUtf8(error.msg) == -1
+      check error.msg.runeLen <= 200
+
 suite "reply validation":
   setup:
     let observations = observationSet()
