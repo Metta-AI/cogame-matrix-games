@@ -269,8 +269,16 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         echo "matrix-games: beat ", beat, " done, tick ", gameSim.tick,
           ", ", gameSim.idx.interactions, " resolutions, ",
           int(epochTime() - gameStart), "s elapsed"
-    except CatchableError as error:
-      echo "matrix-games: beat loop failed, settling early: ", error.msg
+    except Exception as error:
+      ## `Exception`, not `CatchableError`: in Nim 2.2.4 a Defect (IndexDefect,
+      ## RangeDefect, NilAccessDefect) derives from Exception and NOT from
+      ## CatchableError, and the image builds with `-d:release` and without
+      ## `--panics:on` (Dockerfile:43, :46) -- so a defect on this thread is
+      ## raisable, catchable, and would otherwise take the whole process down
+      ## with no artifacts. The note's pin is that a raise settles as
+      ## `deadline`; that has to mean EVERY raise.
+      echo "matrix-games: beat loop failed (", error.name,
+        "), settling early: ", error.msg
       gameSim.finish("deadline", "deadline")
     gameSim.settleComplete()
     withLock stateLock:
