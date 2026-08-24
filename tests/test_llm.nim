@@ -8,6 +8,7 @@
 ## `minBeatSeconds`.
 
 import std/[json, strutils, unicode, unittest]
+import curly
 import support/helpers
 import matrix_games/[sim_types, sim_config, matrices, sim_state, sim,
   scripted, llm]
@@ -218,3 +219,27 @@ suite "degrade, never hang":
     check client.batchSizes.len == 0
     for decision in decisions:
       check decision.source == osFallback
+
+  test "a 401 or a 403 disables the client for the rest of the episode":
+    ## The disable happens inside `textOf`, on the real transport path, so the
+    ## batch hook cannot reach it: the response is handed to `textOf` directly.
+    var config = testConfig("prisoners-dilemma", 48)
+    config.minBeatSeconds = 0
+    let observations = observationSet()
+    for code in [401, 403]:
+      var client = newStubClient(config, proc (system: seq[string],
+          user: seq[string], timeout: int): seq[BatchReply] {.closure.} =
+        for _ in 0 ..< system.len:
+          result.add(BatchReply(text: "{\"intent\":\"hold\"}")))
+      check not client.disabled
+      expect MatrixGamesError:
+        discard client.textOf(Response(code: code, body: "denied"), "",
+          "https://example.invalid/v1/messages")
+      check client.disabled
+      ## And a disabled client never opens another batch: every seat is
+      ## scripted from here to the end of the episode.
+      let decisions = client.decideAll(observations, newSeq[string](Seats),
+        newSeq[ScriptKind](Seats))
+      check client.batchSizes.len == 0
+      for decision in decisions:
+        check decision.source == osFallback
