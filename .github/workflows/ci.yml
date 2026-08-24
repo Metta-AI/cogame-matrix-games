@@ -303,9 +303,17 @@ jobs:
           test -n "${replay}" || {
             echo "::error::docker-smoke uploaded no replay to dist/smoke"; ls -la dist/smoke || true; exit 1; }
           echo "loading ${replay} in dist/static-replay-viewer"
+          # --soak 10: LOADING IS NOT PLAYING. The load signal and the three
+          # scrub readouts both pass on a viewer that drew one frame and then
+          # threw inside a later frame's feed render (cogball 0.1.4). The soak
+          # watches the clock/tick/scorebug keep advancing for an uninterrupted
+          # 10 s of real playback -- the design note's pass condition. The cert
+          # fixture's episode is 300 ticks = 12.5 s at 24 fps, deliberately
+          # longer than the soak.
           node tools/ci/viewer_smoke.mjs \
             --bundle dist/static-replay-viewer \
             --replay "${replay}" \
+            --soak 10 \
             --timeout 90
 
       - name: Upload the viewer smoke evidence
