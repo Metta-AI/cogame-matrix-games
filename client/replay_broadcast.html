@@ -2149,10 +2149,15 @@ button.beat-marker.ahead { opacity: 0.18; }
     window.addEventListener('resize', function () { mgCore.setViewportFit(); });
     mgCore.start();
 
-    // --hudscale / --band / .tiny relayout loop, inherited from the starter
-    // VERBATIM: --u is computed on :root from --hudscale, so the knob has to
-    // be set on :root; --band reserves the transport's natural height so the
-    // board, the overlays and the endcard all stop above the scrubber.
+    // --hudscale / --band / .tiny relayout loop. It does the starter's job on
+    // the starter's variables -- --u is computed on :root from --hudscale, so
+    // the knob has to be set on :root; --band reserves the transport's natural
+    // height so the board, the overlays and the endcard all stop above the
+    // scrubber -- but it is a single pass, not the starter's four-pass
+    // fixed-point letterbox: this board is a fixed 24 x 14 and the fit is
+    // delegated to mgCore.setViewportFit(). The .tiny threshold is 640 px, the
+    // width under which the scorebug labels have to go (the 360 px embedded
+    // featured-match frame is well inside it).
     var mgLastBox = '';
     function mgRelayout() {
       var stage = mgId('stage');
@@ -2160,7 +2165,7 @@ button.beat-marker.ahead { opacity: 0.18; }
       var width = stage.clientWidth || 760;
       root.style.setProperty('--hudscale',
         String(Math.max(0.5, Math.min(1.6, width / 760))));
-      stage.classList.toggle('tiny', width <= 620);
+      stage.classList.toggle('tiny', width < 640);
       var transport = mgId('transport');
       if (transport) root.style.setProperty('--band', transport.offsetHeight + 'px');
       var scorebug = mgId('scorebug');
