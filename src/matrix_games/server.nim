@@ -159,6 +159,12 @@ proc finishEpisode(runtimeConfig: RuntimeConfig) =
 proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
   {.gcsafe.}:
     let config = gameSim.config
+    ## Stamped BEFORE the connect wait on purpose: the 720 s play deadline
+    ## bounds the WHOLE episode, connect time included, so the container
+    ## always settles inside 60 % of episodeTimeoutSeconds. `validate()`
+    ## enforces the arithmetic that makes that fit --
+    ## playerConnectTimeoutSeconds (180) + registration grace (3) +
+    ## beats x 2 x llmTimeoutSeconds (480) = 663 s <= 720 s.
     let gameStart = epochTime()
     let connectDeadline =
       gameStart + config.playerConnectTimeoutSeconds.float
@@ -170,7 +176,8 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         break
       sleep(200)
     ## Give a connected-but-silent seat a moment to send its prompt frame.
-    let registerDeadline = min(epochTime() + 3.0, connectDeadline + 3.0)
+    let registerDeadline = min(epochTime() + RegistrationGraceSeconds.float,
+      connectDeadline + RegistrationGraceSeconds.float)
     while epochTime() < registerDeadline:
       var allRegistered = true
       withLock stateLock:

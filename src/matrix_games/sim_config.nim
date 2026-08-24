@@ -90,12 +90,16 @@ proc validate*(config: GameConfig) =
     raise newException(MatrixGamesError, "llmTimeoutSeconds must be positive")
   ## The whole point of the arithmetic in the design note: worst case is
   ## beats x (attempt + retry), and it has to fit inside 60 % of the episode
-  ## timeout with room to spare.
-  let worst = config.beats * 2 * config.llmTimeoutSeconds
+  ## timeout with room to spare. The play deadline is measured from PROCESS
+  ## START, so the connect wait and the registration grace are spent out of
+  ## the same budget and are counted here -- otherwise the note's headroom is
+  ## imaginary and a config that cannot finish in time starts anyway.
+  let worst = config.playerConnectTimeoutSeconds + RegistrationGraceSeconds +
+    config.beats * 2 * config.llmTimeoutSeconds
   if worst.float > config.playDeadlineSeconds():
     raise newException(MatrixGamesError,
-      "beats x 2 x llmTimeoutSeconds (" & $worst &
-      " s) must fit inside 60% of episodeTimeoutSeconds (" &
+      "playerConnectTimeoutSeconds + 3 + beats x 2 x llmTimeoutSeconds (" &
+      $worst & " s) must fit inside 60% of episodeTimeoutSeconds (" &
       $int(config.playDeadlineSeconds()) & " s)")
 
 proc update*(config: var GameConfig, configJson: string) =

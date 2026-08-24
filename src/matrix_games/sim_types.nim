@@ -88,6 +88,11 @@ const
 
   LegalReasons* = ["complete", "deadline", "forfeit"]
 
+  RegistrationGraceSeconds* = 3
+    ## After the connect wait, a connected-but-silent seat gets this long to
+    ## send its `prompt` frame. It is part of the wall clock the play deadline
+    ## is measured against, so `validate()` counts it.
+
 type
   MatrixGamesError* = object of CatchableError
 
