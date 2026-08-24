@@ -167,12 +167,17 @@ proc closeBeat*(sim: var Sim) =
     "interactions": sim.idx.interactions})
   sim.beat.inc
 
-proc runBeat*(sim: var Sim) =
-  ## One beat: `ticksPerBeat` ticks, then the beat close.
+proc runBeat*(sim: var Sim, onTick: proc(sim: Sim) {.gcsafe.} = nil) =
+  ## One beat: `ticksPerBeat` ticks, then the beat close. `onTick` is called
+  ## after every tick and exists so a harness can capture the sim's own state
+  ## between ticks WITHOUT a second copy of this loop -- a duplicate that
+  ## drifts from the loop the server actually runs proves nothing.
   for _ in 0 ..< sim.config.ticksPerBeat:
     if sim.done:
       return
     sim.stepOnce()
+    if onTick != nil:
+      onTick(sim)
   sim.closeBeat()
 
 proc finish*(sim: var Sim, reason, ending: string) =

@@ -67,10 +67,9 @@ proc runScriptedRecording*(matrix: string, seed: int, kinds: seq[ScriptKind],
       decisions[slot] = scriptedDecision(buildObservation(state, slot),
         kinds[slot], osScripted)
     state.installOrders(decisions)
-    for _ in 0 ..< state.config.ticksPerBeat:
-      state.stepOnce()
-      live.add(state.tickSnapshot())
-    state.closeBeat()
+    ## The PRODUCTION beat loop, with a per-tick hook -- not a second copy of
+    ## it here, which could drift from `runBeat` silently.
+    state.runBeat(proc (played: Sim) = live.add(played.tickSnapshot()))
   state.settleComplete()
   (state, live)
 
