@@ -149,10 +149,23 @@ proc finishEpisode(runtimeConfig: RuntimeConfig) =
   ## first because the hosted worker treats `results.json` as the end of the
   ## episode and tears the pods down when it appears, so a replay written
   ## after it can be lost. Deliberate deviation, same artifacts either way.
-  writeArtifact(runtimeConfig.replayUri, replayData, "application/json",
-    "COGAME_SAVE_REPLAY_METHOD")
-  writeArtifact(runtimeConfig.resultsUri, $results, "application/json",
-    "COGAME_RESULTS_METHOD")
+  ##
+  ## The two writes are INDEPENDENT. `writeArtifact` raises on a non-2xx POST
+  ## (:92), and a failed replay upload must not take results.json -- the
+  ## artifact the platform scores the episode from -- down with it.
+  var failures = 0
+  for (label, uri, data, methodEnv) in [
+      ("replay", runtimeConfig.replayUri, replayData,
+       "COGAME_SAVE_REPLAY_METHOD"),
+      ("results", runtimeConfig.resultsUri, $results, "COGAME_RESULTS_METHOD")]:
+    try:
+      writeArtifact(uri, data, "application/json", methodEnv)
+    except Exception as error:
+      failures.inc
+      echo "matrix-games: ", label, " write failed (", error.name, "): ",
+        error.msg
+  if failures > 0:
+    echo "matrix-games: ", failures, " of 2 artifacts could not be written"
   echo gameSim.summaryLine()
 
 proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
@@ -220,7 +233,11 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
       gameSim.captureFrame()
       gameSim.captureSeries()
       gameSim.finish("forfeit", "forfeit")
-      finishEpisode(runtimeConfig)
+      try:
+        finishEpisode(runtimeConfig)
+      except Exception as error:
+        echo "matrix-games: forfeit settle failed (", error.name, "): ",
+          error.msg
       sleep(config.shutdownGraceSeconds * 1000)
       quit(0)
 
@@ -281,11 +298,19 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         "), settling early: ", error.msg
       gameSim.finish("deadline", "deadline")
     gameSim.settleComplete()
-    withLock stateLock:
-      ## One last observation to every seat, so a policy sees the state it
-      ## finished in before the `final` frame arrives.
-      pushStateFrames()
-    finishEpisode(runtimeConfig)
+    ## The SETTLE PATH is guarded too, and for the same reason the beat loop
+    ## is: `resultsJson`, `replayBytes` and the artifact POST all run here, all
+    ## of them can raise (`writeArtifact`, :92), and a raise on this thread
+    ## ends the process with the episode unrecorded. Whatever happens, the
+    ## container reaches its shutdown grace and `quit(0)`.
+    try:
+      withLock stateLock:
+        ## One last observation to every seat, so a policy sees the state it
+        ## finished in before the `final` frame arrives.
+        pushStateFrames()
+      finishEpisode(runtimeConfig)
+    except Exception as error:
+      echo "matrix-games: settle failed (", error.name, "): ", error.msg
     ## `/healthz` and `/global` keep answering for the grace window, because
     ## hosted certification pings the global websocket AFTER the player pods
     ## start (the cogame-lantern learning).
