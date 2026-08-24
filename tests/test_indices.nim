@@ -6,8 +6,8 @@
 ## into a room where nothing happens fails HERE, not in a hosted replay
 ## nobody can watch.
 ##
-## Two of the note's five "the matrix bites" assertions are restated, because
-## the note's literal forms measure who-met-whom rather than the matrix:
+## Three of the note's "the matrix bites" clauses are restated, because the
+## note's literal forms measure who-met-whom rather than the matrix:
 ##
 ##  * PD "a room of seven always-first plus one always-second gives the
 ##    always-second seat the top score" -- it does not, and cannot: a seat's
@@ -20,6 +20,13 @@
 ##    zones and mostly meet their own kind, so the aggregate measures
 ##    segregation. `counter` versus `always-first` is the same claim ("no
 ##    fixed policy survives") on a pairing that actually meets, and it holds.
+##  * chicken "one always-second in a room of always-first tops the table" --
+##    the same positional artefact as PD, and measurably false here: the lone
+##    hawk resolves 5-11 times to a dove's 11-19 (the doves interact with each
+##    other freely while the hawk is frozen out), so it never tops the table on
+##    any of seeds 1..8. What the note is after -- hawk beats dove where they
+##    MEET -- is asserted per resolution below. The clause's second half (an
+##    all-hawk room is the worst per resolution) is asserted as written.
 
 import std/[json, unittest]
 import support/helpers
@@ -102,6 +109,25 @@ suite "gate (b): the matrix bites":
       check abs(total) < 0.5          ## integer truncation, not exact zero
       check negative
       check positive
+
+  test "chicken: hawk out-earns dove wherever the two meet":
+    var checked = 0
+    for seed in 1 .. 8:
+      var kinds = uniform(skAlwaysFirst)
+      kinds[3] = skAlwaysSecond
+      let state = runScripted("chicken", seed, kinds)
+      for record in state.events.records:
+        if record{"k"}.getStr() != "interact":
+          continue
+        let cellRow = record{"cellRow"}.getInt()
+        let cellCol = record{"cellCol"}.getInt()
+        if cellRow == 1 and cellCol == 0:
+          checked.inc
+          check record{"rowCp"}.getInt() > record{"colCp"}.getInt()
+        elif cellRow == 0 and cellCol == 1:
+          checked.inc
+          check record{"colCp"}.getInt() > record{"rowCp"}.getInt()
+    check checked >= 8
 
   test "chicken: an all-hawk room is the worst room per resolution":
     let hawk = roomPerResolution("chicken", skAlwaysSecond)
