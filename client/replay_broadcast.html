@@ -1572,9 +1572,10 @@ button.beat-marker.ahead { opacity: 0.18; }
   'use strict';
 
   // The three splice markers above are replaced with <script src> tags by
-  // Dockerfile.replay-viewer when the static bundle is built. A raw
-  // /client/replay open off the game server has no splice, so pull the same
-  // files in by src and re-enter once they are up.
+  // Dockerfile.replay-viewer when the static bundle is built. An unspliced
+  // copy of this page (opened straight from the repo, or from any static
+  // directory that also holds the two scripts) has no splice, so pull the
+  // same files in by src and re-enter once they are up.
   function mgNeed(name, global) {
     return typeof window[global] === 'undefined' ? name : null;
   }
