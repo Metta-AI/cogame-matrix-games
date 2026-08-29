@@ -69,8 +69,12 @@ window.ChromeCommon = function (ctx) {
 
   // Engine-authoritative wire constants (spliced by the server / static
   // bundle); the literals are fallbacks for raw file:// opens only.
-  var WIRE = window.CTF_WIRE || {};
-  var SPEEDS = WIRE.speeds || [1, 2, 3, 4, 8, 16];
+  // MATRIX_WIRE, not the inherited CTF_WIRE: tools/gen_wire_constants.nim
+  // emits `window.MATRIX_WIRE=` and nothing in this repo has ever defined
+  // CTF_WIRE, so the inherited name read undefined on every page and every
+  // constant below silently ran on its file:// fallback.
+  var WIRE = window.MATRIX_WIRE || {};
+  var SPEEDS = WIRE.speeds || [0.5, 1, 2, 3, 4, 8, 16];
   var FPS = WIRE.fps || 24;
 
   // ---- UI toggles (externally configurable) --------------------------------
@@ -434,7 +438,11 @@ window.ChromeCommon = function (ctx) {
   // speed→command map); clicks go down the page's own command channel.
   var speedChipEls = {};
   (function () {
-    var host = $('speedchips'), map = { 1: '1', 2: '2', 3: '3', 4: '4', 8: '8', 16: '6' };
+    // '5' for half speed: the map sends the VALUE character where one exists,
+    // and 16 and 0.5 both need a stand-in ('6' and '5', neither of which is a
+    // speed of its own).
+    var host = $('speedchips'),
+      map = { 0.5: '5', 1: '1', 2: '2', 3: '3', 4: '4', 8: '8', 16: '6' };
     SPEEDS.forEach(function (v) {
       var b = document.createElement('button');
       b.className = 'chip';
