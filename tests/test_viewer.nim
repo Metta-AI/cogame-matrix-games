@@ -361,6 +361,90 @@ suite "the viewer bundle's matched pair":
     check loadedAt > 0
     check readyAt > loadedAt
 
+suite "playback controls":
+  ## The transport is split across three files -- the speeds come from Nim,
+  ## the chips are built by the inherited chrome, and playback itself lives in
+  ## the page-side rAF accumulator -- so every one of them can drift out of
+  ## agreement on its own while the other two stay green.
+
+  test "half speed is an offered speed and it is the slowest one":
+    check PlaybackSpeeds[0] == 0.5
+    for speed in PlaybackSpeeds:
+      check speed >= 0.5
+
+  test "the chrome reads THIS game's wire object, not the inherited one":
+    ## tools/gen_wire_constants.nim emits `window.MATRIX_WIRE=`; nothing in the
+    ## repo has ever defined CTF_WIRE, so reading that name silently ran the
+    ## whole chrome -- speeds and fps included -- on its file:// fallbacks.
+    let chrome = readFile(repoRoot() / "client" / "chrome_common.js")
+    check "window.MATRIX_WIRE" in chrome
+    check "window.CTF_WIRE" notin chrome
+    check "window.MATRIX_WIRE=" in readFile(repoRoot() / "tools" /
+      "gen_wire_constants.nim")
+
+  test "every wire speed has a chip command, and the page decodes it":
+    ## chrome_common.js maps speed -> command character and sends it down the
+    ## page's channel; replay_broadcast.html maps that character back to a
+    ## speed. Two hand-written tables facing each other: if they disagree, a
+    ## chip lights up and playback does not change.
+    let chrome = readFile(repoRoot() / "client" / "chrome_common.js")
+    let page = readFile(repoRoot() / "client" / "replay_broadcast.html")
+    ## (speed, the JS literal both files spell it with, command character)
+    let wiring = @[(0.5, "0.5", "5"), (1.0, "1", "1"), (2.0, "2", "2"),
+      (3.0, "3", "3"), (4.0, "4", "4"), (8.0, "8", "8"), (16.0, "16", "6")]
+    var covered: seq[float]
+    for (speed, literal, command) in wiring:
+      covered.add(speed)
+      check (literal & ": '" & command & "'") in chrome
+      check ("'" & command & "': " & literal) in page
+    for speed in PlaybackSpeeds:
+      check speed in covered
+
+  test "the page's command channel actually moves the playback speed":
+    ## It was `send: function () {}`: the chips rendered, tracked the current
+    ## speed, and did nothing at all when clicked.
+    let block4 = gameBlock()
+    check "send: function () {}" notin block4
+    check "mgSpeedByCommand" in block4
+    check "mgCore.setSpeed(speed)" in block4
+
+  test "Space toggles play/pause on the page the bundle ships":
+    ## client/replay_broadcast.html IS the bundle's index.html (see
+    ## Dockerfile.replay-viewer); it is the only shipped page that plays
+    ## anything, so this is the only place the binding can live.
+    let block4 = gameBlock()
+    let at = block4.find("event.key === ' '")
+    check at > 0
+    let branch = block4[at ..< block4.find("\n", at)]
+    check "btn-play" in branch
+    check "event.preventDefault()" in branch
+
+  test "a page-side transport change re-renders the band":
+    ## Pausing stops the packets, so a band rendered only out of mgApply
+    ## freezes on the last PLAYING frame: the play button keeps showing the
+    ## pause glyph for as long as the replay stays paused, and a speed chip
+    ## clicked while paused lights up only once playback resumes.
+    let block4 = gameBlock()
+    check "function mgRenderTransport()" in block4
+    for change in ["mgCore.setPlaying(!mgCore.isPlaying());",
+        "mgLoop = !mgLoop;", "mgSkip = !mgSkip;", "mgCore.setSpeed(speed);"]:
+      let at = block4.find(change)
+      check at > 0
+      let handler = block4[at ..< block4.find("}", at + change.len)]
+      check "mgRenderTransport()" in handler
+
+  test "the rAF accumulator divides the dwell instead of scaling frames":
+    ## `floor(acc / frameMs) * speed` can only ever step whole frames per
+    ## tick, so it floors every fractional speed to a no-op. Dividing the
+    ## per-tick dwell by the speed is exact for the integer speeds and is what
+    ## makes 0.5 mean anything.
+    let shell = readFile(repoRoot() / "replay-viewer" / "static_replay.js")
+    check "var stepMs = frameMs / speed;" in shell
+    check "accumulator >= stepMs" in shell
+    check "Math.floor(accumulator / frameMs) * speed" notin shell
+    ## And the setter must not truncate the fraction on the way in.
+    check "Math.max(1, value | 0)" notin shell
+
 suite "board art":
   test "every asset the manifest names is committed":
     let root = repoRoot()

@@ -25,7 +25,10 @@ const
   BoardH* = 14
   CellPx* = 40                 ## 24 x 14 cells at 40 px = a 960 x 560 board
   TargetFps* = 24
-  PlaybackSpeeds* = [1, 2, 3, 4, 8, 16]
+  ## Float, not int: 0.5x is a real playback speed, and the page's frame
+  ## accumulator divides the per-tick dwell by this number, so a half step is
+  ## just a longer dwell rather than a fractional frame count.
+  PlaybackSpeeds* = [0.5, 1.0, 2.0, 3.0, 4.0, 8.0, 16.0]
 
   Seats* = 8
   Aliases* = ["Ash", "Birch", "Cedar", "Dune", "Elm", "Fern", "Gorse",

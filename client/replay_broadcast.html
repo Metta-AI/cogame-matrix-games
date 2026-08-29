@@ -2037,6 +2037,7 @@ button.beat-marker.ahead { opacity: 0.18; }
     function mgWireTransport() {
       mgId('btn-play').onclick = function () {
         mgCore.setPlaying(!mgCore.isPlaying());
+        mgRenderTransport();
       };
       mgId('btn-restart').onclick = function () { mgCore.seek(0); };
       mgId('btn-back').onclick = function () {
@@ -2046,8 +2047,8 @@ button.beat-marker.ahead { opacity: 0.18; }
         mgCore.seek((mgState ? mgState.t : 0) + 120);
       };
       mgId('btn-end').onclick = function () { mgCore.seek(mgTickCount - 1); };
-      mgId('btn-loop').onclick = function () { mgLoop = !mgLoop; };
-      mgId('btn-skip').onclick = function () { mgSkip = !mgSkip; };
+      mgId('btn-loop').onclick = function () { mgLoop = !mgLoop; mgRenderTransport(); };
+      mgId('btn-skip').onclick = function () { mgSkip = !mgSkip; mgRenderTransport(); };
       mgId('scrub').onclick = function (event) {
         var rect = mgId('scrub').getBoundingClientRect();
         var ratio = (event.clientX - rect.left) / Math.max(1, rect.width);
@@ -2076,20 +2077,29 @@ button.beat-marker.ahead { opacity: 0.18; }
     }
 
     // ---- the chrome state frame ------------------------------------------
+    // The transport flags are the PAGE's, not the recording's: merge them into
+    // the retained frame before chrome_common sees it. Called on every packet
+    // AND on every page-side transport change, because pausing stops the
+    // packets: rendering the band only from mgApply left the play button
+    // showing the last PLAYING frame's glyph for as long as the replay stayed
+    // paused, and a speed chip clicked while paused lit up only on resume.
+    function mgRenderTransport() {
+      if (!mgState) return;
+      mgState.pl = mgCore.isPlaying();
+      mgState.sp = mgCore.getSpeed();
+      mgState.lp = mgLoop;
+      mgState.sk = mgSkip;
+      mgState.ff = mgSkip;
+      mgState.en = true;
+      mgChrome.renderTransport(mgState);
+    }
+
     function mgApply(packet) {
       var state = packet.s;
-      // The transport flags are the PAGE's, not the recording's: merge them in
-      // before chrome_common sees the frame.
-      state.pl = mgCore.isPlaying();
-      state.sp = mgCore.getSpeed();
-      state.lp = mgLoop;
-      state.sk = mgSkip;
-      state.ff = mgSkip;
-      state.en = true;
       mgState = state;
       mgChrome.ingestLullSpans({ lulls: mgMeta.lulls });
       mgChrome.ingestLeadSeries({ lead: mgMeta.lead });
-      mgChrome.renderTransport(state);
+      mgRenderTransport();
       mgRenderClock(state);
       mgUpdatePlates(state);
       mgRenderHeat(state);
@@ -2126,8 +2136,18 @@ button.beat-marker.ahead { opacity: 0.18; }
     mgLockerroom();
 
     // ---- boot --------------------------------------------------------------
+    // The chrome's speed chips click down this channel, using
+    // chrome_common.js's speed->command map. Playback lives page-side in
+    // static_replay.js, so the command lands on mgCore rather than on a
+    // socket; the chips lit up but did nothing while `send` was a no-op.
+    var mgSpeedByCommand =
+      { '5': 0.5, '1': 1, '2': 2, '3': 3, '4': 4, '8': 8, '6': 16 };
+
     mgChrome = window.ChromeCommon({
-      send: function () {},
+      send: function (command) {
+        var speed = mgSpeedByCommand[command];
+        if (speed) { mgCore.setSpeed(speed); mgRenderTransport(); }
+      },
       sendPov: function () {},
       getState: function () { return mgState; }
     });

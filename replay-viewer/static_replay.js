@@ -118,11 +118,16 @@
       if (!lastFrame) lastFrame = now;
       accumulator = Math.min(accumulator + Math.min(now - lastFrame, 250), 250);
       lastFrame = now;
-      if (playing && !advanceInFlight && accumulator >= frameMs) {
-        var frames = Math.min(64, Math.floor(accumulator / frameMs) * speed);
-        accumulator -= Math.floor(accumulator / frameMs) * frameMs;
+      // `speed` divides the per-tick DWELL rather than multiplying a frame
+      // count, so a fractional speed is just a longer dwell and the worker
+      // never has to advance half a frame. For every integer speed this is
+      // arithmetically the old `floor(acc / frameMs) * speed`.
+      var stepMs = frameMs / speed;
+      if (playing && !advanceInFlight && accumulator >= stepMs) {
+        var frames = Math.floor(accumulator / stepMs);
+        accumulator -= frames * stepMs;
         advanceInFlight = true;
-        worker.postMessage({ type: 'advance', frames: Math.max(1, frames) });
+        worker.postMessage({ type: 'advance', frames: Math.min(64, frames) });
       }
       requestAnimationFrame(animate);
     }
@@ -221,7 +226,12 @@
       seek: function (tick) { if (worker) worker.postMessage({ type: 'seek', tick: tick }); },
       setPlaying: function (value) { playing = !!value; },
       isPlaying: function () { return playing; },
-      setSpeed: function (value) { speed = Math.max(1, value | 0); },
+      // Not `value | 0`: that truncated 0.5 to 0 and the clamp then snapped it
+      // back to 1, so half speed was unreachable through this door.
+      setSpeed: function (value) {
+        var next = Number(value);
+        if (next > 0) speed = next;
+      },
       getSpeed: function () { return speed; },
       zoomAt: function (factor, x, y) {
         if (worker) worker.postMessage({ type: 'view', action: 'zoom', factor: factor, x: x, y: y });
