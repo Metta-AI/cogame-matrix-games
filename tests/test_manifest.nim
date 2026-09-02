@@ -61,6 +61,8 @@ suite "coworld_manifest_template.json":
 
   test "the replay viewer is the static bundle, never a pod":
     check game{"replay_viewer"}{"bundle"}.getStr() == "static-replay-viewer"
+    ## The public replay copy is gzip; the Worker sniffs and inflates it.
+    check game{"replay_viewer"}{"replay_compression"}.getStr() == "gzip"
     check game{"replay_viewer"}{"url"} == nil
     check "/client/replay" notin $game{"runnable"}
     ## And no pod path serves the broadcast page under ANY name: the asset
