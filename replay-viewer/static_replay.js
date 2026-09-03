@@ -155,13 +155,9 @@
           setMismatchTick(message.mismatchTick);
           loaded = true;
           document.documentElement.setAttribute('data-replay-loaded', 'true');
-          // `ready` means a PICTURE, not merely a parsed payload, and it is
-          // posted from HERE -- after data-replay-loaded is set -- rather than
-          // on rAF timing at the firstFrame call site. Posting it earlier lets
-          // softmax.com sample an unpainted shell (chorus, 2026-08-24).
-          window.requestAnimationFrame(function () {
-            window.requestAnimationFrame(function () { tell('ready'); });
-          });
+          // `loaded` arrives after the first frame is drawn. Yield once so the
+          // paint lands, without relying on throttled offscreen animation frames.
+          window.setTimeout(function () { tell('ready'); }, 0);
           if (config.onLoaded) config.onLoaded(message);
           if (config.onFrame) config.onFrame(message.frame, 0);
           requestAnimationFrame(animate);

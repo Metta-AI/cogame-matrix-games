@@ -362,7 +362,7 @@ suite "the viewer bundle's matched pair":
     check "tell('phase'" in shell
     check "location.hash" in shell
     for token in ["bundle_ready", "replay_fetch_start", "replay_fetch_end",
-        "replay_parsed", "0x1f", "0x8b", "0x78",
+        "replay_parsed", "0x1f", "0x8b", "(bytes[0] & 0x0f)", "% 31",
         "DecompressionStream(format)", "_mg_load_replay"]:
       check token in worker
     check worker.find("replay_fetch_end") < worker.find("await inflate(")
