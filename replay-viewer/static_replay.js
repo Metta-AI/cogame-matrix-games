@@ -12,11 +12,16 @@
   // come back from S3. So the shell tells the parent what it is doing:
   // `loading` as soon as this script runs (before `load`, so the host never
   // mistakes document-load for a picture), `ready` once the renderer has
-  // drawn its first frame, `error` when the replay cannot be shown. No
-  // secrets ride on it, so the target origin is "*".
-  function tell(type, message) {
+  // drawn its first frame, `error` when the replay cannot be shown, and in
+  // between the `phase` marks the Worker reports (bundle_ready,
+  // replay_fetch_start, replay_fetch_end with the byte count and the
+  // gzip/zlib sniff, replay_parsed). A Worker cannot reach window.parent, so
+  // the marks are relayed from here; the host stamps them with its own clock
+  // on receipt, so they carry no timestamp. No secrets ride on it, so the
+  // target origin is "*".
+  function tell(type, message, fields) {
     if (window.parent === window) return;
-    var envelope = { src: 'coworld-replay', type: type };
+    var envelope = Object.assign({ src: 'coworld-replay', type: type }, fields);
     if (message) envelope.message = message;
     try { window.parent.postMessage(envelope, '*'); } catch (ignore) {}
   }
@@ -136,7 +141,9 @@
       if (failed) return;
       var message = event.data || {};
       try {
-        if (message.type === 'meta') {
+        if (message.type === 'phase') {
+          tell('phase', null, message);
+        } else if (message.type === 'meta') {
           if (config.onMeta) config.onMeta(message.meta);
         } else if (message.type === 'firstFrame') {
           if (config.onFirstFrame) config.onFirstFrame();
@@ -148,13 +155,9 @@
           setMismatchTick(message.mismatchTick);
           loaded = true;
           document.documentElement.setAttribute('data-replay-loaded', 'true');
-          // `ready` means a PICTURE, not merely a parsed payload, and it is
-          // posted from HERE -- after data-replay-loaded is set -- rather than
-          // on rAF timing at the firstFrame call site. Posting it earlier lets
-          // softmax.com sample an unpainted shell (chorus, 2026-08-24).
-          window.requestAnimationFrame(function () {
-            window.requestAnimationFrame(function () { tell('ready'); });
-          });
+          // `loaded` arrives after the first frame is drawn. Yield once so the
+          // paint lands, without relying on throttled offscreen animation frames.
+          window.setTimeout(function () { tell('ready'); }, 0);
           if (config.onLoaded) config.onLoaded(message);
           if (config.onFrame) config.onFrame(message.frame, 0);
           requestAnimationFrame(animate);
@@ -175,9 +178,13 @@
     function start() {
       if (started || !offscreen || failed) return;
       started = true;
-      var replayUrl = new URLSearchParams(location.search).get('replay');
+      // `#replay=` first (the fragment is not sent in the HTTP request, so
+      // the hosted index.html cache key does not vary per episode), then the
+      // legacy `?replay=` query that local viewers still open with.
+      var replayUrl = new URLSearchParams(location.hash.slice(1)).get('replay') ||
+        new URLSearchParams(location.search).get('replay');
       if (!replayUrl) {
-        showFailure(new Error('missing required ?replay= URL'));
+        showFailure(new Error('missing required #replay= (or ?replay=) URL'));
         return;
       }
       readViewport();
