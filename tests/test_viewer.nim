@@ -350,6 +350,23 @@ suite "the viewer bundle's matched pair":
     check "mismatch_tick" notin config
     check "_mg_mismatch_tick" notin worker
 
+  test "the phase marks and the gzip sniff are in the served JS":
+    ## The Worker posts `phase` marks (bundle_ready, replay_fetch_start,
+    ## replay_fetch_end with bytes + compressed, replay_parsed) and the shell
+    ## relays them to the embedder; the host stamps them on its own clock.
+    ## The public replay copy is gzip (manifest replay_compression), so the
+    ## Worker sniffs the magic bytes and inflates before the wasm loader.
+    let shell = readFile(repoRoot() / "replay-viewer" / "static_replay.js")
+    let worker = readFile(repoRoot() / "replay-viewer" /
+      "static_replay_worker.js")
+    check "tell('phase'" in shell
+    check "location.hash" in shell
+    for token in ["bundle_ready", "replay_fetch_start", "replay_fetch_end",
+        "replay_parsed", "0x1f", "0x8b", "(bytes[0] & 0x0f)", "% 31",
+        "DecompressionStream(format)", "_mg_load_replay"]:
+      check token in worker
+    check worker.find("replay_fetch_end") < worker.find("await inflate(")
+
   test "the shell reports both readiness attributes":
     let shell = readFile(repoRoot() / "replay-viewer" / "static_replay.js")
     check "setAttribute('data-replay-loaded', 'true')" in shell
