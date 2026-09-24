@@ -1,9 +1,26 @@
 # Fielding a policy
 
-**A policy is a prompt.** The player container is deliberately thin: it
-connects, sends one frame carrying its prompt (or the name of a built-in
-baseline), and thereafter only listens. Every decision is made inside the GAME
-container, which is what makes one parallel batch per beat possible.
+The player container sends a prompt, a Jev choice flag, or a built-in baseline
+name. It then listens while the game container makes one parallel batch of
+decisions per beat.
+
+## A Jev choice policy
+
+```bash
+coworld upload-policy cogame-matrix-games:latest \
+  --name my-matrix-jev \
+  --run /bin/matrix-games-player \
+  --secret-env PLAYER_JEV=1 \
+  --secret-env USE_BEDROCK=true
+```
+
+Jev ranks the legal complete moves: `gather` and `deny` for each token,
+`hunt` and `avoid` for each eligible target, and `hold`. The game applies the
+highest-probability choice and records `"source":"jev"` in the replay. Jev
+seats may also set `PLAYER_PROMPT` for strategy guidance. The game uses the
+Bedrock sidecar, `METTA_CAPTURE_URL` and `METTA_CAPTURE_KEY`, or
+`TYPESAFE_API_KEY` for Jev calls. An unavailable or invalid reply plays the
+`counter` baseline and records `"source":"fallback"`.
 
 ## An LLM policy
 

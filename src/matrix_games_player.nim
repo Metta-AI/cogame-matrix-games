@@ -1,12 +1,13 @@
-## Matrix Games player: a policy is just a prompt.
+## Matrix Games player: register a prompt, Jev mode, or scripted baseline.
 ##
 ## Fork of `cogame-bullwhip/src/bullwhip_player.nim`. The player container is
-## deliberately thin: it connects, sends ONE frame carrying its prompt (or its
-## baseline name), and thereafter only listens. Every decision is made inside
+## deliberately thin: it connects, sends ONE frame carrying its mode and
+## optional prompt, and thereafter only listens. Every decision is made inside
 ## the GAME container, which is what makes one parallel batch per beat
 ## possible and why the coworld secret is declared on the game runnable.
 ##
 ##   PLAYER_PROMPT="<strategy text>"        an LLM policy
+##   PLAYER_JEV=1                           a Jev choice policy
 ##   PLAYER_SCRIPTED=counter|tit-for-tat|fixed-pick|always-first|always-second
 ##                                          a scripted baseline
 ##
@@ -40,7 +41,10 @@ when isMainModule:
     quit("COWORLD_PLAYER_WS_URL is not set", 1)
   var prompt = getEnv("PLAYER_PROMPT")
   let scripted = getEnv("PLAYER_SCRIPTED").strip()
-  if prompt.strip().len == 0 and scripted.len == 0:
+  let jev = getEnv("PLAYER_JEV") == "1"
+  if jev and scripted.len > 0:
+    quit("select Jev or scripted, not both", 1)
+  if prompt.strip().len == 0 and scripted.len == 0 and not jev:
     ## The manifest ships this binary with no env as `matrix-games-player`,
     ## "the reference matrix-games policy", so a bare container registers with
     ## the reference PROMPT rather than as a scripted seat. The server's own
@@ -53,6 +57,7 @@ when isMainModule:
     $ %*{
       "type": "prompt",
       "prompt": prompt,
+      "jev": jev,
       "scripted": scripted,
       "policy": policy
     }
@@ -74,7 +79,8 @@ when isMainModule:
 
   socket.send(promptFrame())
   echo "matrix-games player: registered (", prompt.len, " prompt chars",
-    (if scripted.len > 0: ", scripted " & scripted else: ", llm"), ")"
+    (if scripted.len > 0: ", scripted " & scripted
+     elif jev: ", Jev" else: ", llm"), ")"
 
   while true:
     ## whisky RAISES rather than returning none on both a close frame and a

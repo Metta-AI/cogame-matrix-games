@@ -1,4 +1,4 @@
-## Claude-backed decision making: ONE parallel batch per beat.
+## Claude and Jev decision making: ONE parallel batch per beat.
 ##
 ## Forked from `cogame-bullwhip/src/bullwhip/llm.nim`. Matrix Games is a
 ## simultaneous-decision game, so at every beat boundary all eight seats'
@@ -13,7 +13,7 @@
 ## beat falls back instantly with no network wait, and offline certification
 ## still completes deterministically. That fallback is load-bearing.
 ##
-## The model ladder is haiku-only, deliberately: the sonnet fallback times out
+## The Claude model ladder is haiku-only: the sonnet fallback times out
 ## on every sidecar call and turns one throttle into a cascade of scripted
 ## seats (the cogame-raid learning, 2026-08-23).
 
@@ -44,6 +44,10 @@ type
     bedrockModel: int
     bedrockToken: string
     model*: string
+    jevEndpoint: string
+    jevKey: string
+    jevModel: string
+    jevTrajectoryId: string
     maxOutputTokens*: int
     timeoutSeconds*: int
     minBeatSeconds*: int
@@ -93,6 +97,23 @@ proc newLlmClient*(config: GameConfig): LlmClient =
   )
   let bedrockEndpoint = getEnv("AWS_ENDPOINT_URL_BEDROCK_RUNTIME").strip()
   let bedrockToken = getEnv("AWS_BEARER_TOKEN_BEDROCK").strip()
+  let captureUrl = getEnv("METTA_CAPTURE_URL").strip()
+  let typesafeKey = getEnv("TYPESAFE_API_KEY").strip()
+  if bedrockEndpoint.len > 0:
+    result.jevEndpoint = bedrockEndpoint.strip(chars = {'/'}, leading = false)
+    result.jevModel = "typesafe/jev-1.13"
+  elif captureUrl.len > 0:
+    result.jevEndpoint = captureUrl.strip(chars = {'/'}, leading = false)
+    result.jevKey = getEnv("METTA_CAPTURE_KEY").strip()
+    if result.jevKey.len == 0:
+      raise newException(MatrixGamesError, "METTA_CAPTURE_KEY is required")
+    result.jevModel = "typesafe/jev-1.13"
+    result.jevTrajectoryId = "matrix-games-jev-" & $config.seed
+  elif typesafeKey.len > 0:
+    result.jevEndpoint = getEnv("TYPESAFE_BASE_URL",
+      "https://api.typesafe.ai").strip(chars = {'/'}, leading = false)
+    result.jevKey = typesafeKey
+    result.jevModel = getEnv("TYPESAFE_DEFAULT_MODEL", "jev-latest")
   if bedrockEndpoint.len > 0 or bedrockToken.len > 0:
     let region = getEnv("AWS_REGION", getEnv("AWS_DEFAULT_REGION", "us-west-2"))
     let endpoint =
@@ -113,6 +134,8 @@ proc newLlmClient*(config: GameConfig): LlmClient =
   else:
     result.transport = ltNone
     result.disabled = true
+    if result.jevEndpoint.len > 0:
+      result.curl = newCurly()
     echo "matrix-games llm: no LLM credentials; every seat plays `counter`"
 
 proc newStubClient*(config: GameConfig,
@@ -453,6 +476,9 @@ proc textOf*(client: LlmClient, response: Response, error, url: string):
     raise newException(MatrixGamesError, "anthropic error " & $response.code &
       ": " & cleanText(response.body, MaxDetailRunes))
   let payload = parseJson(response.body)
+  echo "matrix-games llm: model ", client.model,
+    " input_tokens ", payload["usage"]["input_tokens"].getInt(),
+    " output_tokens ", payload["usage"]["output_tokens"].getInt()
   if payload{"stop_reason"}.getStr() == "refusal":
     raise newException(MatrixGamesError, "anthropic refusal")
   for contentBlock in payload{"content"}:
@@ -475,7 +501,59 @@ proc paceBatch(client: LlmClient) =
   client.lastBatchStart = epochTime()
   client.batchStarts.add(client.lastBatchStart)
 
-proc runBatch(client: LlmClient, system, user: seq[string]): seq[BatchReply] =
+proc jevCriteria*(obs: JsonNode): JsonNode =
+  result = %*{"hold": "Stand still and fire at a nearby cog."}
+  for token in obs["legal"]["tokens"]:
+    let name = token.getStr()
+    result["gather:" & name] = %("Collect a " & name & " token.")
+    result["deny:" & name] = %("Collect a " & name &
+      " token near another cog, denying it to them.")
+  for target in obs["legal"]["targets"]:
+    let name = target.getStr()
+    result["hunt:" & name] = %("Approach and fire at " & name & ".")
+    result["avoid:" & name] = %("Move away from " & name & ".")
+
+proc jevOrder*(payload, obs: JsonNode): IntentOrder =
+  let criteria = jevCriteria(obs)
+  let answer = payload["answers"]["decision"]
+  let probabilities = answer["probabilities"]
+  if answer["type"].getStr() != "choice" or
+      not criteria.hasKey(answer["choice"].getStr()) or
+      probabilities.len != criteria.len:
+    raise newException(MatrixGamesError, "Jev returned the wrong choice set")
+  let confidence = answer["confidence"].getFloat()
+  if confidence < 0 or confidence > 1:
+    raise newException(MatrixGamesError, "Jev confidence is outside [0, 1]")
+  var total = 0.0
+  var best = -1.0
+  var choice = ""
+  for name, probability in probabilities.pairs:
+    if not criteria.hasKey(name):
+      raise newException(MatrixGamesError, "Jev returned an unknown choice")
+    let value = probability.getFloat()
+    if value < 0 or value > 1:
+      raise newException(MatrixGamesError, "Jev probability is outside [0, 1]")
+    total += value
+    if value > best:
+      best = value
+      choice = name
+  if abs(total - 1) > probabilities.len.float * 0.005 + 1e-6:
+    raise newException(MatrixGamesError, "Jev probabilities do not sum to one")
+  let parts = choice.split(':')
+  var order = %*{"intent": parts[0]}
+  if parts[0] in ["gather", "deny"]:
+    order["token"] = %parts[1]
+  elif parts[0] in ["hunt", "avoid"]:
+    order["target"] = %parts[1]
+  result = parseOrder(order, obs)
+  echo "matrix-games jev: choice ", choice, " reported ",
+    answer["choice"].getStr(), " confidence ", confidence,
+    " model ", payload{"model"}.getStr(),
+    " input_tokens ", payload["usage"]{"input_tokens"}.getInt(),
+    " output_tokens ", payload["usage"]{"output_tokens"}.getInt()
+
+proc runBatch(client: LlmClient, system, user: seq[string],
+    observations: seq[JsonNode], seats: seq[int], jev: seq[bool]): seq[BatchReply] =
   ## ONE parallel batch for every open seat. Never a loop of single calls.
   client.batchSizes.add(system.len)
   client.paceBatch()
@@ -484,16 +562,46 @@ proc runBatch(client: LlmClient, system, user: seq[string]): seq[BatchReply] =
   var batch: RequestBatch
   var urls: seq[string]
   for index in 0 ..< system.len:
-    let request = client.requestFor(system[index], user[index])
-    urls.add(request.url)
-    batch.post(request.url, request.headers, request.body, $index)
+    let slot = seats[index]
+    if jev[slot]:
+      var headers: HttpHeaders
+      headers["content-type"] = "application/json"
+      if client.jevKey.len > 0:
+        headers["authorization"] = "Bearer " & client.jevKey
+      else:
+        headers["x-coworld-player-slot"] = $slot
+      if client.jevTrajectoryId.len > 0:
+        headers["x-metta-trajectory-id"] = client.jevTrajectoryId & "-" & $slot
+      let body = %*{
+        "model": client.jevModel,
+        "state": system[index] & "\n\n" & user[index],
+        "questions": {"decision": {
+          "type": "choice",
+          "instructions": "Choose the legal move that maximizes your expected long-run payoff in this matrix game.",
+          "criteria": jevCriteria(observations[slot])
+        }}
+      }
+      urls.add(client.jevEndpoint & "/v1/systemone")
+      batch.post(urls[^1], headers, $body, $index)
+    else:
+      let request = client.requestFor(system[index], user[index])
+      urls.add(request.url)
+      batch.post(request.url, request.headers, request.body, $index)
   let responses = client.curl.makeRequests(batch, client.timeoutSeconds)
   result = newSeq[BatchReply](system.len)
   for position in 0 ..< responses.len:
     try:
-      result[position] = BatchReply(text: client.textOf(
-        responses[position].response, responses[position].error,
-        urls[position]))
+      if jev[seats[position]]:
+        let response = responses[position].response
+        if responses[position].error.len > 0 or response.code < 200 or
+            response.code >= 300:
+          raise newException(MatrixGamesError, "Jev transport failed: " &
+            responses[position].error & " HTTP " & $response.code)
+        result[position] = BatchReply(text: response.body)
+      else:
+        result[position] = BatchReply(text: client.textOf(
+          responses[position].response, responses[position].error,
+          urls[position]))
     except CatchableError as error:
       result[position] = BatchReply(error: error.msg)
 
@@ -506,7 +614,8 @@ proc scriptedDecision*(obs: JsonNode, kind: ScriptKind,
   Decision(order: order, source: source, latencyMs: 0)
 
 proc decideAll*(client: LlmClient, observations: seq[JsonNode],
-    prompts: seq[string], scripted: seq[ScriptKind]): seq[Decision] =
+    prompts: seq[string], scripted: seq[ScriptKind],
+    jev: seq[bool]): seq[Decision] =
   ## One decision per seat, indexed BY SLOT. Never raises: any failure falls
   ## back to the `counter` scripted intent so the episode always advances.
   result = newSeq[Decision](observations.len)
@@ -515,7 +624,8 @@ proc decideAll*(client: LlmClient, observations: seq[JsonNode],
     let kind = if slot < scripted.len: scripted[slot] else: skNone
     if kind != skNone:
       result[slot] = scriptedDecision(observations[slot], kind, osScripted)
-    elif client == nil or client.disabled:
+    elif client == nil or (jev[slot] and client.jevEndpoint.len == 0) or
+        (not jev[slot] and client.disabled):
       result[slot] = scriptedDecision(observations[slot], skCounter,
         osFallback)
     else:
@@ -523,8 +633,16 @@ proc decideAll*(client: LlmClient, observations: seq[JsonNode],
         osFallback)
       open.add(slot)
   for attempt in 0 .. 1:
-    if open.len == 0 or client.disabled:
+    if open.len == 0:
       break
+    if client.disabled:
+      var enabled: seq[int]
+      for slot in open:
+        if jev[slot]:
+          enabled.add(slot)
+      open = enabled
+      if open.len == 0:
+        break
     var system: seq[string]
     var user: seq[string]
     for slot in open:
@@ -535,7 +653,7 @@ proc decideAll*(client: LlmClient, observations: seq[JsonNode],
         text.add(retryHint(observations[slot]))
       user.add(text)
     let started = epochTime()
-    let replies = runBatch(client, system, user)
+    let replies = runBatch(client, system, user, observations, open, jev)
     let latency = int((epochTime() - started) * 1000.0)
     var stillOpen: seq[int]
     for position, slot in open:
@@ -548,10 +666,15 @@ proc decideAll*(client: LlmClient, observations: seq[JsonNode],
         stillOpen.add(slot)
         continue
       try:
-        let order = parseOrder(extractJsonObject(replies[position].text),
-          observations[slot])
+        let order =
+          if jev[slot]:
+            jevOrder(parseJson(replies[position].text), observations[slot])
+          else:
+            parseOrder(extractJsonObject(replies[position].text),
+              observations[slot])
         result[slot] = Decision(order: order,
-          source: (if attempt == 0: osLlm else: osRetry), latencyMs: latency)
+          source: (if jev[slot]: osJev
+                   elif attempt == 0: osLlm else: osRetry), latencyMs: latency)
       except CatchableError as error:
         echo "matrix-games llm: seat ", slot, " attempt ", attempt + 1,
           " invalid: ", error.msg
