@@ -2,6 +2,7 @@
 
 Build ``matrix-jev:local``, then set TYPESAFE_API_KEY and ANTHROPIC_API_KEY
 and run ``python3 tools/jev_local_pilot.py 7``. Artifacts stay in dist/.
+Set MATRIX_VARIANT to exercise another matrix with the same player roster.
 """
 
 import copy
@@ -17,6 +18,7 @@ manifest = json.loads((root / "coworld_manifest_template.json").read_text())
 image = "matrix-jev:local"
 seed = int(sys.argv[1])
 arms = sys.argv[2:] or ("jev", "claude", "counter")
+variant = os.environ.get("MATRIX_VARIANT", "prisoners-dilemma")
 
 
 def docker(*args, env=None, timeout=300):
@@ -27,10 +29,13 @@ def docker(*args, env=None, timeout=300):
 
 
 for arm in arms:
-    out = root / "dist" / f"local-{arm}-seed-{seed}"
+    name = f"local-{arm}-seed-{seed}"
+    if variant != "prisoners-dilemma":
+        name = f"local-{variant}-{arm}-seed-{seed}"
+    out = root / "dist" / name
     out.mkdir(parents=True, exist_ok=True)
     config = copy.deepcopy(manifest["certification"]["game_config"])
-    config.update(seed=seed, beats=6, minBeatSeconds=1,
+    config.update(seed=seed, matrix=variant, beats=6, minBeatSeconds=1,
                   playerConnectTimeoutSeconds=20, shutdownGraceSeconds=0,
                   tokens=[f"token-{slot}" for slot in range(8)])
     (out / "config.json").write_text(json.dumps(config))
