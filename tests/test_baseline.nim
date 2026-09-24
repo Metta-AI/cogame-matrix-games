@@ -112,23 +112,24 @@ suite "scripted baselines":
       let order = scriptedOrder(%*{}, kind)
       check order.intent in {inGather, inDeny, inHunt, inAvoid, inHold}
 
-  test "no baseline takes longer than 1 ms per beat":
-    var frozen: seq[JsonNode]
-    block:
-      var state = initSim(testConfig("prisoners-dilemma", 5))
-      for _ in 0 ..< 4:
-        var decisions = newSeq[Decision](Seats)
+  when defined(release):
+    test "no baseline takes longer than 1 ms per beat":
+      var frozen: seq[JsonNode]
+      block:
+        var state = initSim(testConfig("prisoners-dilemma", 5))
+        for _ in 0 ..< 4:
+          var decisions = newSeq[Decision](Seats)
+          for slot in 0 ..< Seats:
+            decisions[slot] = scriptedDecision(buildObservation(state, slot),
+              skCounter, osScripted)
+          state.installOrders(decisions)
+          state.runBeat()
         for slot in 0 ..< Seats:
-          decisions[slot] = scriptedDecision(buildObservation(state, slot),
-            skCounter, osScripted)
-        state.installOrders(decisions)
-        state.runBeat()
-      for slot in 0 ..< Seats:
-        frozen.add(buildObservation(state, slot))
-    for kind in AllKinds:
-      let started = epochTime()
-      for _ in 0 ..< 100:
-        for slot in 0 ..< Seats:
-          discard scriptedOrder(frozen[slot], kind)
-      let perBeatMs = (epochTime() - started) * 1000.0 / 100.0
-      check perBeatMs < 1.0
+          frozen.add(buildObservation(state, slot))
+      for kind in AllKinds:
+        let started = epochTime()
+        for _ in 0 ..< 100:
+          for slot in 0 ..< Seats:
+            discard scriptedOrder(frozen[slot], kind)
+        let perBeatMs = (epochTime() - started) * 1000.0 / 100.0
+        check perBeatMs < 1.0
