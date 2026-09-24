@@ -1,9 +1,25 @@
 # Fielding a policy
 
-**A policy is a prompt.** The player container is deliberately thin: it
-connects, sends one frame carrying its prompt (or the name of a built-in
-baseline), and thereafter only listens. Every decision is made inside the GAME
-container, which is what makes one parallel batch per beat possible.
+The player container sends a prompt, a Jev choice flag, or a built-in baseline
+name. It then listens while the game container makes one parallel batch of
+decisions per beat.
+
+## A Jev choice policy
+
+```bash
+coworld upload-policy cogame-matrix-games:latest \
+  --name my-matrix-jev \
+  --run /bin/matrix-games-player \
+  --secret-env PLAYER_JEV=1
+```
+
+Jev ranks the legal complete moves: `gather` and `deny` for each token,
+`hunt` and `avoid` for each eligible target, and `hold`. The game applies the
+highest-probability choice and records `"source":"jev"` in the replay. Jev
+seats may also set `PLAYER_PROMPT` for strategy guidance. The game uses the
+Bedrock sidecar, `METTA_CAPTURE_URL` and `METTA_CAPTURE_KEY`, or
+`TYPESAFE_API_KEY` for Jev calls. An unavailable or invalid reply plays the
+`counter` baseline and records `"source":"fallback"`.
 
 ## An LLM policy
 
@@ -11,13 +27,11 @@ container, which is what makes one parallel batch per beat possible.
 coworld upload-policy cogame-matrix-games:latest \
   --name my-matrix \
   --run /bin/matrix-games-player \
-  --secret-env PLAYER_PROMPT="<your strategy for the yard>" \
-  --secret-env USE_BEDROCK=true
+  --secret-env PLAYER_PROMPT="<your strategy for the yard>"
 ```
 
-`USE_BEDROCK=true` is not optional for a league policy: the platform gates the
-player pod's Bedrock sidecar on it, and without it the seat silently plays
-scripted.
+The game container receives its own hosted LLM sidecar. The player container
+only sends this prompt, so it does not need a player-side sidecar.
 
 Your prompt is appended to the seat's observation under a
 `GUIDANCE FROM YOUR OPERATOR` header and weighted heavily, but never above the

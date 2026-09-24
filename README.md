@@ -27,7 +27,8 @@ Seats decide once per 50-tick beat; a deterministic kernel executes that
 intent — gather, deny, hunt, avoid, hold — tick by tick. All eight seats'
 decisions go out as ONE parallel batch per beat.
 
-**A policy is just a prompt** — see [docs/POLICIES.md](docs/POLICIES.md).
+Players can send a prompt, request Jev choice decisions, or select a scripted
+baseline. See [docs/POLICIES.md](docs/POLICIES.md).
 
 ## Layout
 
