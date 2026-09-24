@@ -14,8 +14,7 @@
 ## To field your own policy, reuse this image and set PLAYER_PROMPT:
 ##   coworld upload-policy cogame-matrix-games:latest --name my-matrix \
 ##     --run /bin/matrix-games-player \
-##     --secret-env PLAYER_PROMPT="<your strategy>" \
-##     --secret-env USE_BEDROCK=true
+##     --secret-env PLAYER_PROMPT="<your strategy>"
 
 import std/[json, options, os, strutils]
 import whisky

@@ -10,8 +10,7 @@ decisions per beat.
 coworld upload-policy cogame-matrix-games:latest \
   --name my-matrix-jev \
   --run /bin/matrix-games-player \
-  --secret-env PLAYER_JEV=1 \
-  --secret-env USE_BEDROCK=true
+  --secret-env PLAYER_JEV=1
 ```
 
 Jev ranks the legal complete moves: `gather` and `deny` for each token,
@@ -28,13 +27,11 @@ Bedrock sidecar, `METTA_CAPTURE_URL` and `METTA_CAPTURE_KEY`, or
 coworld upload-policy cogame-matrix-games:latest \
   --name my-matrix \
   --run /bin/matrix-games-player \
-  --secret-env PLAYER_PROMPT="<your strategy for the yard>" \
-  --secret-env USE_BEDROCK=true
+  --secret-env PLAYER_PROMPT="<your strategy for the yard>"
 ```
 
-`USE_BEDROCK=true` is not optional for a league policy: the platform gates the
-player pod's Bedrock sidecar on it, and without it the seat silently plays
-scripted.
+The game container receives its own hosted LLM sidecar. The player container
+only sends this prompt, so it does not need a player-side sidecar.
 
 Your prompt is appended to the seat's observation under a
 `GUIDANCE FROM YOUR OPERATOR` header and weighted heavily, but never above the
