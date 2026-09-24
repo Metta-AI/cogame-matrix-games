@@ -28,14 +28,14 @@ intent — gather, deny, hunt, avoid, hold — tick by tick. All eight seats'
 decisions go out as ONE parallel batch per beat.
 
 Players can act from seat observations, send a prompt, or select a scripted
-baseline. Jev is an external player policy. See [docs/POLICIES.md](docs/POLICIES.md).
+baseline. See [docs/POLICIES.md](docs/POLICIES.md).
 
 ## Layout
 
 - `src/matrix_games.nim` — entrypoint. Seed randomisation happens HERE, before
   the pinned seed is honoured, so every seed-derived draw follows the final
   seed.
-- `src/matrix_games_player.nim` — the player policy. Jev decisions happen here.
+- `src/matrix_games_player.nim` — the player policy and external action adapter.
 - `src/matrix_games/` — `sim_types.nim` (constants, wire types, the two text
   helpers), `matrices.nim` (the seven matrices), `arena_map.nim` (the ASCII
   yard), `sim_config.nim`, `sim_state.nim` (the `Sim` object, the seeded
