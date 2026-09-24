@@ -93,24 +93,6 @@ suite "reply validation":
     check "operator guidance here" in user
     check "begin with the character {" in systemPrompt(obs)
 
-  test "Jev ranks complete legal moves and applies the highest probability":
-    let criteria = jevCriteria(obs)
-    check criteria.hasKey("gather:cooperate")
-    check criteria.hasKey("hunt:Fern")
-    check not criteria.hasKey("hunt:Ash")
-    var probabilities = newJObject()
-    for name, _ in criteria.pairs:
-      probabilities[name] = %(if name == "hunt:Fern": 1.0 else: 0.0)
-    let payload = %*{"usage": {"input_tokens": 10, "output_tokens": 0},
-      "answers": {"decision": {
-      "type": "choice", "choice": "hold", "confidence": 0.8,
-      "probabilities": probabilities}}}
-    let order = jevOrder(payload, obs)
-    check order.intent == inHunt
-    check order.target == slotOfAlias("Fern")
-    probabilities["hold"] = %0.1
-    expect MatrixGamesError:
-      discard jevOrder(payload, obs)
 
 suite "the batch contract":
   test "one batch carries every open seat, and batches are paced":
@@ -125,7 +107,7 @@ suite "the batch contract":
       for _ in 0 ..< system.len:
         result.add(BatchReply(text: "{\"intent\":\"hold\",\"say\":\"ok\"}")))
     let decisions = client.decideAll(observations, newSeq[string](Seats),
-      newSeq[ScriptKind](Seats), newSeq[bool](Seats))
+      newSeq[ScriptKind](Seats))
     check sizes == @[Seats]
     check client.batchSizes == @[Seats]
     for decision in decisions:
@@ -133,7 +115,7 @@ suite "the batch contract":
       check decision.order.intent == inHold
     ## A second batch must not start inside minBeatSeconds of the first.
     discard client.decideAll(observations, newSeq[string](Seats),
-      newSeq[ScriptKind](Seats), newSeq[bool](Seats))
+      newSeq[ScriptKind](Seats))
     check client.batchStarts.len == 2
     check client.batchStarts[1] - client.batchStarts[0] >=
       config.minBeatSeconds.float - 0.05
@@ -152,7 +134,7 @@ suite "the batch contract":
     kinds[0] = skCounter
     kinds[1] = skAlwaysFirst
     let decisions = client.decideAll(observations, newSeq[string](Seats),
-      kinds, newSeq[bool](Seats))
+      kinds)
     check sizes == @[Seats - 2]
     check decisions[0].source == osScripted
     check decisions[1].source == osScripted
@@ -172,7 +154,7 @@ suite "degrade, never hang":
       for _ in 0 ..< system.len:
         result.add(BatchReply(text: "{\"intent\":\"teleport\"}")))
     let decisions = client.decideAll(observations, newSeq[string](Seats),
-      newSeq[ScriptKind](Seats), newSeq[bool](Seats))
+      newSeq[ScriptKind](Seats))
     check attempts == 2
     for decision in decisions:
       check decision.source == osFallback
@@ -193,7 +175,7 @@ suite "degrade, never hang":
         else:
           result.add(BatchReply(text: "{\"intent\":\"hold\"}")))
     let decisions = client.decideAll(observations, newSeq[string](Seats),
-      newSeq[ScriptKind](Seats), newSeq[bool](Seats))
+      newSeq[ScriptKind](Seats))
     for decision in decisions:
       check decision.source == osRetry
 
@@ -216,7 +198,7 @@ suite "degrade, never hang":
       for index in 0 ..< system.len:
         result.add(failures[index mod failures.len]))
     let decisions = client.decideAll(observations, newSeq[string](Seats),
-      newSeq[ScriptKind](Seats), newSeq[bool](Seats))
+      newSeq[ScriptKind](Seats))
     check decisions.len == Seats
     for slot in 0 ..< Seats:
       check decisions[slot].source == osFallback
@@ -234,7 +216,7 @@ suite "degrade, never hang":
     var client = newStubClient(config, nil)
     client.disabled = true
     let decisions = client.decideAll(observations, newSeq[string](Seats),
-      newSeq[ScriptKind](Seats), newSeq[bool](Seats))
+      newSeq[ScriptKind](Seats))
     check client.batchSizes.len == 0
     for decision in decisions:
       check decision.source == osFallback
@@ -258,7 +240,7 @@ suite "degrade, never hang":
       ## And a disabled client never opens another batch: every seat is
       ## scripted from here to the end of the episode.
       let decisions = client.decideAll(observations, newSeq[string](Seats),
-        newSeq[ScriptKind](Seats), newSeq[bool](Seats))
+        newSeq[ScriptKind](Seats))
       check client.batchSizes.len == 0
       for decision in decisions:
         check decision.source == osFallback

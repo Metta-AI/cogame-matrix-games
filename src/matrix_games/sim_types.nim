@@ -18,7 +18,7 @@ const
     ## Bump whenever a recorded frame would replay as a different episode.
 
   ReplayProtocol* = "matrix.replay.v1"
-  PlayerProtocol* = "matrix.player.v1"
+  PlayerProtocol* = "matrix.player.v2"
   GlobalProtocol* = "matrix.global.v1"
 
   BoardW* = 24

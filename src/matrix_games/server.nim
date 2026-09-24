@@ -16,9 +16,8 @@
 ##                                   with a close frame, never a hang
 ##   WS  /global                     live spectator
 ##
-## Decisions are made HERE, not in the player container: the Bedrock sidecar
-## credentials and the `anthropic_api_key` secret are injected into the GAME
-## pod, and "one parallel batch per beat" is a game-server property.
+## External policies receive a seat observation and return an intent action.
+## Existing prompt policies keep their server-side adapter.
 
 import std/[json, locks, os, sets, strutils, tables, times, unicode]
 import bitworld/runtime
@@ -32,7 +31,10 @@ type
   ServerState = object
     prompts: seq[string]
     scripted: seq[ScriptKind]
-    jev: seq[bool]
+    external: seq[bool]
+    externalSources: seq[OrderSource]
+    awaiting: seq[bool]
+    actions: seq[JsonNode]
     policies: seq[string]
     registered: seq[bool]
     everRegistered: seq[bool]
@@ -220,7 +222,8 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
           shared.scripted[slot] = skCounter
         gameSim.policyKinds[slot] =
           if shared.scripted[slot] != skNone: "scripted"
-          elif shared.jev[slot]: "jev" else: "llm"
+          elif shared.external[slot]: $shared.externalSources[slot]
+          else: "llm"
         if shared.policies[slot].len > 0:
           gameSim.names[slot] = shared.policies[slot]
       echo "matrix-games: starting with ", connectedCount, "/", shared.seats,
@@ -271,19 +274,54 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         var observations = newSeq[JsonNode](shared.seats)
         var prompts: seq[string]
         var kinds: seq[ScriptKind]
-        var jev: seq[bool]
+        var external: seq[bool]
         withLock stateLock:
           prompts = shared.prompts
           kinds = shared.scripted
-          jev = shared.jev
+          external = shared.external
           for slot in 0 ..< shared.seats:
             observations[slot] = buildObservation(gameSim, slot)
             if not shared.playerSockets.hasKey(slot):
               ## A seat that dropped mid-episode plays `counter` for every
               ## remaining beat. The episode never waits on it.
               kinds[slot] = skCounter
+              external[slot] = false
           pushStateFrames()
-        let decisions = client.decideAll(observations, prompts, kinds, jev)
+          for slot in 0 ..< shared.seats:
+            if external[slot]:
+              shared.awaiting[slot] = true
+              shared.actions[slot] = nil
+              if shared.playerSockets.hasKey(slot):
+                shared.playerSockets[slot].send($ %*{
+                  "type": "observation",
+                  "beat": beat,
+                  "observation": observations[slot]
+                })
+        for slot in 0 ..< shared.seats:
+          if external[slot]:
+            kinds[slot] = skCounter
+        var decisions = client.decideAll(observations, prompts, kinds)
+        let actionDeadline = epochTime() + config.llmTimeoutSeconds.float
+        while epochTime() < actionDeadline:
+          var waiting = false
+          withLock stateLock:
+            for slot in 0 ..< shared.seats:
+              if external[slot] and shared.actions[slot].isNil:
+                waiting = true
+          if not waiting:
+            break
+          sleep(20)
+        withLock stateLock:
+          for slot in 0 ..< shared.seats:
+            if external[slot]:
+              shared.awaiting[slot] = false
+              if not shared.actions[slot].isNil:
+                decisions[slot] = Decision(
+                  order: parseOrder(shared.actions[slot], observations[slot]),
+                  source: shared.externalSources[slot], latencyMs: 0)
+              else:
+                decisions[slot] = scriptedDecision(observations[slot],
+                  skCounter, osFallback)
         gameSim.installOrders(decisions)
         withLock stateLock:
           refreshSnapshotLocked()
@@ -453,12 +491,36 @@ proc websocketHandler(websocket: WebSocket, event: WebSocketEvent,
         return
       try:
         let payload = parseJson(message.data)
+        if payload{"type"}.getStr() == "action":
+          withLock stateLock:
+            if shared.external[slot] and shared.awaiting[slot] and
+                payload["beat"].getInt() == gameSim.beat:
+              discard parseOrder(payload["action"],
+                buildObservation(gameSim, slot))
+              shared.actions[slot] = payload["action"]
+          return
+        if payload{"type"}.getStr() == "register":
+          if payload["control"].getStr() != "external":
+            raise newException(MatrixGamesError, "unknown player control")
+          let policy = cleanText(payload{"policy"}.getStr(),
+            MaxPolicyLabelRunes)
+          let kind = payload{"kind"}.getStr()
+          if kind notin ["scripted", "llm"]:
+            raise newException(MatrixGamesError, "unknown policy kind")
+          withLock stateLock:
+            shared.external[slot] = true
+            shared.externalSources[slot] =
+              if kind == "scripted": osScripted else: osLlm
+            shared.policies[slot] = policy
+            shared.registered[slot] = true
+            shared.everRegistered[slot] = true
+          echo "matrix-games: slot ", slot, " registered external policy"
+          return
         if payload{"type"}.getStr() != "prompt":
           echo "matrix-games: ignoring frame of type ",
             payload{"type"}.getStr()
           return
         var prompt = payload{"prompt"}.getStr()
-        let jev = payload{"jev"}.getBool()
         if prompt.runeLen > MaxPromptRunes:
           prompt = prompt.runeSubStr(0, MaxPromptRunes)
         let node = payload{"scripted"}
@@ -469,22 +531,20 @@ proc websocketHandler(websocket: WebSocket, event: WebSocketEvent,
         if node != nil and node.kind == JString and
             node.getStr().strip().len == 0:
           kind = skNone
-        if jev and kind != skNone:
-          raise newException(MatrixGamesError, "select Jev or scripted")
-        if prompt.strip().len == 0 and kind == skNone and not jev:
+        if prompt.strip().len == 0 and kind == skNone:
           kind = skCounter
         let policy = cleanText(payload{"policy"}.getStr(),
           MaxPolicyLabelRunes)
         withLock stateLock:
           shared.prompts[slot] = prompt
           shared.scripted[slot] = kind
-          shared.jev[slot] = jev
+          shared.external[slot] = false
           shared.policies[slot] = policy
           shared.registered[slot] = true
           shared.everRegistered[slot] = true
         echo "matrix-games: slot ", slot, " registered (", prompt.len,
           " prompt chars", (if kind != skNone: ", scripted " & $kind
-                            elif jev: ", Jev" else: ", llm"), ")"
+                            else: ", llm"), ")"
       except CatchableError as error:
         echo "matrix-games: ignoring bad player frame: ", error.msg
     of ErrorEvent:
@@ -530,7 +590,10 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   shared.seats = config.numAgents
   shared.prompts = newSeq[string](shared.seats)
   shared.scripted = newSeq[ScriptKind](shared.seats)
-  shared.jev = newSeq[bool](shared.seats)
+  shared.external = newSeq[bool](shared.seats)
+  shared.externalSources = newSeq[OrderSource](shared.seats)
+  shared.awaiting = newSeq[bool](shared.seats)
+  shared.actions = newSeq[JsonNode](shared.seats)
   shared.policies = newSeq[string](shared.seats)
   shared.registered = newSeq[bool](shared.seats)
   shared.everRegistered = newSeq[bool](shared.seats)

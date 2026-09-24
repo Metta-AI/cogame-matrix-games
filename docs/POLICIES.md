@@ -1,8 +1,8 @@
 # Fielding a policy
 
-The player container sends a prompt, a Jev choice flag, or a built-in baseline
-name. It then listens while the game container makes one parallel batch of
-decisions per beat.
+The game sends each external policy its seat observation and accepts one intent
+action per beat. Existing prompt policies retain their adapter; bundled scripted
+policies use the same external interface as Jev.
 
 ## A Jev choice policy
 
@@ -14,12 +14,12 @@ coworld upload-policy cogame-matrix-games:latest \
 ```
 
 Jev ranks the legal complete moves: `gather` and `deny` for each token,
-`hunt` and `avoid` for each eligible target, and `hold`. The game applies the
-highest-probability choice and records `"source":"jev"` in the replay. Jev
-seats may also set `PLAYER_PROMPT` for strategy guidance. The game uses the
-Bedrock sidecar, `METTA_CAPTURE_URL` and `METTA_CAPTURE_KEY`, or
-`TYPESAFE_API_KEY` for Jev calls. An unavailable or invalid reply plays the
-`counter` baseline and records `"source":"fallback"`.
+`hunt` and `avoid` for each eligible target, and `hold`. The player selects
+the highest-probability choice and sends the same action
+schema as any external policy. The game validates it and records
+`"source":"llm"` in the replay. `PLAYER_PROMPT` is policy guidance. The player
+uses its own Bedrock sidecar, `METTA_CAPTURE_URL` and `METTA_CAPTURE_KEY`, or
+`TYPESAFE_API_KEY`. A missing action plays `counter` and records fallback.
 
 ## An LLM policy
 

@@ -48,9 +48,7 @@ for arm in arms:
         containers.append(game)
         game_env = dict(os.environ)
         provider_env = []
-        if arm == "jev":
-            provider_env = ["-e", "TYPESAFE_API_KEY"]
-        elif arm == "claude":
+        if arm == "claude":
             provider_env = ["-e", "ANTHROPIC_API_KEY"]
         docker(
             "run", "-d", "--name", game, "--network", network,
@@ -68,8 +66,10 @@ for arm in arms:
             containers.append(player)
             policy_env = ["-e", "PLAYER_SCRIPTED=counter"]
             if slot == 0 and arm == "jev":
-                policy_env = ["-e", "PLAYER_JEV=1",
+                policy_env = ["-e", "PLAYER_JEV=1", "-e", "TYPESAFE_API_KEY",
                               "-e", "PLAYER_PROMPT=Choose the best legal move for your own score."]
+                if "TYPESAFE_BASE_URL" in os.environ:
+                    policy_env += ["-e", "TYPESAFE_BASE_URL"]
             elif slot == 0 and arm == "claude":
                 policy_env = ["-e", "PLAYER_PROMPT=Choose the best legal move for your own score."]
             docker(
@@ -83,7 +83,7 @@ for arm in arms:
         replay = json.loads((out / "replay.json").read_text())
         orders = [event for event in replay["events"]
                   if event["k"] == "order" and event["seat"] == 0]
-        expected = "jev" if arm == "jev" else "llm" if arm == "claude" else "scripted"
+        expected = "llm" if arm in ("jev", "claude") else "scripted"
         assert len(orders) == config["beats"], len(orders)
         assert all(order["source"] == expected for order in orders), orders
         print(arm, "score", results["scores"][0], "orders", len(orders),
