@@ -1,6 +1,6 @@
 # Matrix Games — wire protocols
 
-## `matrix.player.v1` (WS `/player?slot=N&token=T`)
+## `matrix.player.v2` (WS `/player?slot=N&token=T`)
 
 JSON text frames.
 
@@ -13,12 +13,18 @@ re-send guards the slot-registration race):
  "policy":"<display label>"}
 ```
 
-Any other frame is ignored with a log line.
+An external policy registers with `{"type":"register","control":"external",
+"policy":"<display label>","kind":"llm|scripted"}`. At each beat, the game sends
+`{"type":"observation","beat":N,"observation":{...}}`. The policy replies
+`{"type":"action","beat":N,"action":{"intent":"hold"}}`, using the reply
+schema below. The game validates the action against that seat’s legal lists.
+Existing prompt registrations remain accepted, including older scripted
+registrations. The bundled scripted policy uses the external interface.
 
 **game -> player**:
 
 ```json
-{"type":"welcome","protocol":"matrix.player.v1","slot":4,"name":"Elm",
+{"type":"welcome","protocol":"matrix.player.v2","slot":4,"name":"Elm",
  "camp":"column","variant":"prisoners-dilemma","beats":12,"ticksPerBeat":50}
 ```
 

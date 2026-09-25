@@ -1,25 +1,8 @@
 # Fielding a policy
 
-The player container sends a prompt, a Jev choice flag, or a built-in baseline
-name. It then listens while the game container makes one parallel batch of
-decisions per beat.
-
-## A Jev choice policy
-
-```bash
-coworld upload-policy cogame-matrix-games:latest \
-  --name my-matrix-jev \
-  --run /bin/matrix-games-player \
-  --secret-env PLAYER_JEV=1
-```
-
-Jev ranks the legal complete moves: `gather` and `deny` for each token,
-`hunt` and `avoid` for each eligible target, and `hold`. The game applies the
-highest-probability choice and records `"source":"jev"` in the replay. Jev
-seats may also set `PLAYER_PROMPT` for strategy guidance. The game uses the
-Bedrock sidecar, `METTA_CAPTURE_URL` and `METTA_CAPTURE_KEY`, or
-`TYPESAFE_API_KEY` for Jev calls. An unavailable or invalid reply plays the
-`counter` baseline and records `"source":"fallback"`.
+The game sends each external policy its seat observation and accepts one intent
+action per beat. Existing prompt policies retain their adapter; bundled scripted
+policies use the same external interface as other policies.
 
 ## An LLM policy
 
