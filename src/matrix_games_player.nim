@@ -1,10 +1,9 @@
-## Matrix Games player: receive seat observations and return Jev actions.
+## Matrix Games player: receive seat observations and return scripted actions.
 ##
-## Existing prompt policies use the server adapter. Jev and bundled scripted
-## policies act on seat observations through the same external protocol.
+## Existing prompt policies use the server adapter. Bundled scripted policies
+## act on seat observations through the external protocol.
 ##
 ##   PLAYER_PROMPT="<strategy text>"        an LLM policy
-##   PLAYER_JEV=1                           a Jev choice policy
 ##   PLAYER_SCRIPTED=counter|tit-for-tat|fixed-pick|always-first|always-second
 ##                                          a scripted baseline
 ##
@@ -14,7 +13,6 @@
 ##     --secret-env PLAYER_PROMPT="<your strategy>"
 
 import std/[json, options, os, strutils]
-import matrix_games/jev_policy
 from matrix_games/scripted import scriptedOrder, scriptedSay
 import matrix_games/sim_types
 import whisky
@@ -40,10 +38,7 @@ when isMainModule:
     quit("COWORLD_PLAYER_WS_URL is not set", 1)
   var prompt = getEnv("PLAYER_PROMPT")
   let scriptedMode = getEnv("PLAYER_SCRIPTED").strip()
-  let jev = getEnv("PLAYER_JEV") == "1"
-  if jev and scriptedMode.len > 0:
-    quit("select Jev or scripted, not both", 1)
-  if prompt.strip().len == 0 and scriptedMode.len == 0 and not jev:
+  if prompt.strip().len == 0 and scriptedMode.len == 0:
     ## The manifest ships this binary with no env as `matrix-games-player`,
     ## "the reference matrix-games policy", so a bare container registers with
     ## the reference PROMPT rather than as a scripted seat. The server's own
@@ -53,9 +48,9 @@ when isMainModule:
   let policy = getEnv("PLAYER_POLICY_LABEL")
 
   proc promptFrame(): string =
-    if jev or scriptedMode.len > 0:
+    if scriptedMode.len > 0:
       $ %*{"type": "register", "control": "external", "policy": policy,
-        "kind": (if scriptedMode.len > 0: "scripted" else: "llm")}
+        "kind": "scripted"}
     else:
       $ %*{"type": "prompt", "prompt": prompt,
         "scripted": scriptedMode, "policy": policy}
@@ -78,7 +73,7 @@ when isMainModule:
   socket.send(promptFrame())
   echo "matrix-games player: registered (", prompt.len, " prompt chars",
     (if scriptedMode.len > 0: ", scripted " & scriptedMode
-     elif jev: ", Jev" else: ", llm"), ")"
+     else: ", llm"), ")"
 
   while true:
     ## whisky RAISES rather than returning none on both a close frame and a
@@ -115,20 +110,16 @@ when isMainModule:
       of "state":
         discard
       of "observation":
-        if jev or scriptedMode.len > 0:
+        if scriptedMode.len > 0:
           let observation = payload["observation"]
-          var action: JsonNode
-          if scriptedMode.len > 0:
-            let kind = parseScriptKind(scriptedMode)
-            let order = scriptedOrder(observation, kind)
-            action = %*{"intent": $order.intent, "say": scriptedSay(kind),
-              "notes": ""}
-            if order.intent in {inGather, inDeny}:
-              action["token"] = observation["legal"]["tokens"][order.token]
-            if order.intent in {inHunt, inAvoid}:
-              action["target"] = %aliasOf(order.target)
-          else:
-            action = chooseAction(observation, prompt)
+          let kind = parseScriptKind(scriptedMode)
+          let order = scriptedOrder(observation, kind)
+          var action = %*{"intent": $order.intent, "say": scriptedSay(kind),
+            "notes": ""}
+          if order.intent in {inGather, inDeny}:
+            action["token"] = observation["legal"]["tokens"][order.token]
+          if order.intent in {inHunt, inAvoid}:
+            action["target"] = %aliasOf(order.target)
           socket.send($ %*{"type": "action", "beat": payload["beat"],
             "action": action})
       else:
