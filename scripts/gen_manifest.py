@@ -278,10 +278,7 @@ def main() -> int:
                 "type": "game",
                 "image": image,
                 "run": ["/bin/matrix-games"],
-                "env": {
-                    "ANTHROPIC_API_KEY_URI":
-                        f"secret://coworld/{SLUG}/anthropic_api_key",
-                },
+                "env": {},
                 "source_url":
                     "https://github.com/Metta-AI/cogame-matrix-games/tree/main",
             },
