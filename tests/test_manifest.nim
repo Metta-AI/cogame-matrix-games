@@ -96,8 +96,8 @@ suite "coworld_manifest_template.json":
   test "the game runnable declares its type and the coworld secret":
     check game{"runnable"}{"type"}.getStr() == "game"
     check game{"runnable"}{"run"}[0].getStr() == "/bin/matrix-games"
-    check game{"runnable"}{"env"}{"ANTHROPIC_API_KEY_URI"}.getStr() ==
-      "secret://coworld/matrix-games/anthropic_api_key"
+    doAssert game{"runnable"}{"env"}{"ANTHROPIC_API_KEY_URI"}.isNil,
+      "hosted LLM uses the platform sidecar without provider secrets"
     check game{"runnable"}{"source_url"}.getStr().len > 0
 
   test "top-level episode_timeout_minutes, $schema and >= 3 tags":
