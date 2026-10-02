@@ -634,7 +634,7 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   shared.attempts = newSeq[seq[DecisionAttempt]](shared.seats)
   if getEnv(CogameSaveTrajectoryUriEnv).len > 0:
     shared.trajectory = some(newDecisionTrajectory(getEnv("COWORLD_EPISODE_ID"),
-      "matrix-" & config.matrix & "-" & $config.seed, "matrix-games",
+      "matrix-games-" & $config.seed, "matrix-games",
       getEnv("COWORLD_GAME_VERSION"), getEnv("COWORLD_SOURCE_REVISION")))
   shared.policies = newSeq[string](shared.seats)
   shared.registered = newSeq[bool](shared.seats)

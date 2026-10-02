@@ -22,6 +22,7 @@ for run in manifest["runs"]:
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     episode = json.loads(path.read_text())
     assert episode["episode"]["status"] == "completed"
+    assert episode["episode"]["seed_family"] == "matrix-games-" + str(run["seed"])
     assert episode["episode"]["source_revision"] == manifest["source_revision"]
     assert len(episode["decisions"]) == run["decisions"]
     assert all(decision["terminal"] for decision in episode["decisions"][-8:])
