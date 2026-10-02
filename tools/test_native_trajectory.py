@@ -44,7 +44,7 @@ for mode in ["accepted", "retry", "fallback", "greedy"]:
                 or mode == "retry"
                 and "previous reply was invalid" not in user
             ):
-                raw = "invalid-json-fixture"
+                raw = "PRIVATE INVALID RESPONSE SENTINEL"
             call_id = str(uuid.uuid4())
             response = {
                 "id": call_id,
@@ -67,6 +67,7 @@ for mode in ["accepted", "retry", "fallback", "greedy"]:
                 {
                     "platform_call_id": call_id,
                     "caller_request": body,
+                    "caller_slot": self.headers["X-Coworld-Player-Slot"],
                     "provider_response": response,
                 }
             )
@@ -74,6 +75,9 @@ for mode in ["accepted", "retry", "fallback", "greedy"]:
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("X-Softmax-Llm-Call-Id", call_id)
+            self.send_header("X-Coworld-Checkpoint-Sha256", "a" * 64)
+            self.send_header("X-Coworld-Tokenizer-Sha256", "b" * 64)
+            self.send_header("X-Coworld-Chat-Template-Sha256", "c" * 64)
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
@@ -165,7 +169,25 @@ for mode in ["accepted", "retry", "fallback", "greedy"]:
     for decision in decisions:
         for attempt in decision["attempts"]:
             archive = calls[attempt["platform_call_id"]]
+            assert decision["seat"] == archive["caller_slot"]
             assert attempt["request"] == archive["caller_request"]
+            assert attempt["request"]["model"] == "fixture/native"
+            assert (
+                attempt["model"]
+                == archive["provider_response"]["model"]
+                == "fixture/actual-served"
+            )
+            assert attempt["decoder"] == {
+                "max_tokens": archive["caller_request"]["max_tokens"],
+                "temperature": 0,
+            }
+            assert attempt["model_identity"] == "a" * 64
+            assert attempt["tokenizer_identity"] == "b" * 64
+            assert attempt["chat_template_sha256"] == "c" * 64
+            if mode == "greedy":
+                assert attempt["prompt_token_ids"] == [1]
+                assert attempt["sampled_token_ids"] == [2]
+                assert attempt["behavior_logprobs"] is None
             assert attempt["raw_response"] == archive["provider_response"]
         if decision["action_status"] == "accepted":
             selected = next(
@@ -179,6 +201,9 @@ for mode in ["accepted", "retry", "fallback", "greedy"]:
             )
         else:
             assert mode == "fallback" and decision["selected_attempt_id"] is None
+    for private_text in ["PRIVATE NOTE SENTINEL", "PRIVATE INVALID RESPONSE SENTINEL"]:
+        assert private_text not in (folder / "replay.json").read_text()
+        assert private_text not in (folder / "game.log").read_text()
     assert "PRIVATE OPERATOR SENTINEL" not in (folder / "replay.json").read_text()
     assert "PRIVATE OPERATOR SENTINEL" not in (folder / "game.log").read_text()
     assert "PRIVATE OPERATOR SENTINEL" in (folder / "trajectory.jsonl").read_text()
