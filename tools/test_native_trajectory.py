@@ -201,6 +201,7 @@ for mode in ["accepted", "retry", "fallback", "greedy", "refusal"]:
                 selected["accepted"]
                 and selected["parsed_action"] == decision["executed_action"]
             )
+            assert selected["parsed_action"] == json.loads(selected["response"])
         else:
             assert (
                 mode in {"fallback", "refusal"}

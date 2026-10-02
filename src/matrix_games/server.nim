@@ -329,6 +329,14 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
                 decisions[slot] = Decision(
                   order: parseOrder(shared.actions[slot], observations[slot]),
                   source: shared.externalSources[slot], latencyMs: 0)
+                if shared.attempts[slot].len == 0:
+                  var unknown = newDecisionAttempt("external-" & $beat & "-" & $slot,
+                    "external", aoUnknown)
+                  unknown.response = shared.actions[slot]
+                  shared.attempts[slot].add(unknown)
+                shared.attempts[slot][^1].accepted = true
+                shared.attempts[slot][^1].parsedAction =
+                  actionJson(decisions[slot].order, observations[slot])
               else:
                 decisions[slot] = scriptedDecision(observations[slot],
                   skCounter, osFallback)
@@ -346,12 +354,6 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
               var selected = none(string)
               let accepted = decisions[slot].source in {osLlm, osRetry}
               if accepted:
-                if attempts.len == 0:
-                  var unknown = newDecisionAttempt("external-action", "external", aoUnknown)
-                  unknown.response = shared.actions[slot]
-                  attempts.add(unknown)
-                attempts[^1].accepted = true
-                attempts[^1].parsedAction = action
                 selected = some(attempts[^1].attemptId)
               shared.trajectory.get().recordDecision("beat-" & $beat & "-seat-" & $slot,
                 $slot, %*{"view": observations[slot], "macro_ticks": config.ticksPerBeat,
