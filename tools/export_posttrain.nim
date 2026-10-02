@@ -50,7 +50,7 @@ when isMainModule:
     var game = initSim(config)
     var rows: seq[string]
     let episodeId = "matrix-games-" & variant & "-" & $seed
-    let trajectory = newDecisionTrajectory(episodeId, episodeId, "matrix-games",
+    let trajectory = newDecisionTrajectory(episodeId, "matrix-games-" & $seed, "matrix-games",
       "source-" & sourceRevision[0 .. 11], sourceRevision)
     for beat in 0 ..< config.beats:
       var decisions = newSeq[Decision](Seats)
@@ -74,7 +74,7 @@ when isMainModule:
         attempts.add(attempt)
         rows.add($(%*{
           "episode_id": "matrix-games-" & variant & "-" & $seed,
-          "seed": "matrix-games-" & variant & "-" & $seed,
+          "seed": "matrix-games-" & $seed,
           "decision_id": beat * Seats + slot,
           "prompt": [
             {"role": "system", "content": systemPrompt(obs)},
