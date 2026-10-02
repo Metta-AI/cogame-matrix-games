@@ -17,8 +17,8 @@
 ## on every sidecar call and turns one throttle into a cascade of scripted
 ## seats (the cogame-raid learning, 2026-08-23).
 
-import std/[json, math, os, strutils, times]
-import bitworld/runtime
+import std/[json, math, options, os, strutils, times]
+import bitworld/[runtime, decision_trajectory]
 import curly
 import sim_types, sim_config, scripted
 
@@ -34,6 +34,7 @@ type
   BatchReply* = object
     text*: string
     error*: string
+    evidence*: Option[DecisionAttempt]
 
   LlmClient* = ref object
     curl: Curly
@@ -46,6 +47,8 @@ type
     bedrockToken: string
     model*: string
     maxOutputTokens*: int
+    temperature*: float
+    attempts*: seq[seq[DecisionAttempt]]
     timeoutSeconds*: int
     minBeatSeconds*: int
     disabled*: bool
@@ -87,11 +90,14 @@ proc bedrockUrl(client: LlmClient): string =
 proc newLlmClient*(config: GameConfig): LlmClient =
   result = LlmClient(
     model: config.model,
+    temperature: parseFloat(getEnv("COWORLD_LLM_TEMPERATURE", "1")),
     maxOutputTokens: config.maxOutputTokens,
     timeoutSeconds: config.llmTimeoutSeconds,
     minBeatSeconds: config.minBeatSeconds,
     lastBatchStart: 0.0
   )
+  if not (result.temperature >= 0 and result.temperature <= 1):
+    raise newException(ValueError, "COWORLD_LLM_TEMPERATURE must be finite and between 0 and 1")
   let sidecarEndpoint = getEnv("COWORLD_LLM_ENDPOINT").strip()
   if sidecarEndpoint.len > 0:
     result.transport = ltSidecar
@@ -416,12 +422,20 @@ proc parseOrder*(payload: JsonNode, obs: JsonNode): IntentOrder =
   result.say = cleanText(payload{"say"}.getStr(), MaxSayRunes)
   result.notes = cleanText(payload{"notes"}.getStr(), MaxNotesRunes)
 
+proc actionJson*(order: IntentOrder, obs: JsonNode): JsonNode =
+  result = %*{"intent": $order.intent, "say": order.say, "notes": order.notes}
+  if order.intent in {inGather, inDeny}:
+    result["token"] = obs["legal"]["tokens"][order.token]
+  if order.intent in {inHunt, inAvoid}:
+    result["target"] = %aliasOf(order.target)
+
 # ---- transport ---------------------------------------------------------
 
 proc requestFor(client: LlmClient, system, user: string, slot: int):
     tuple[url: string, headers: HttpHeaders, body: string] =
   var body = %*{
     "max_tokens": client.maxOutputTokens,
+    "temperature": client.temperature,
     "system": system,
     "messages": [{"role": "user", "content": user}]
   }
@@ -497,19 +511,60 @@ proc runBatch(client: LlmClient, system, user: seq[string], slots: seq[int]): se
     return client.batchHook(system, user, client.timeoutSeconds)
   var batch: RequestBatch
   var urls: seq[string]
+  var evidence: seq[DecisionAttempt]
   for index in 0 ..< system.len:
     let request = client.requestFor(system[index], user[index], slots[index])
     urls.add(request.url)
+    var attempt = newDecisionAttempt("pending", "matrix-prompt", aoModel)
+    attempt.prompt = %*[{"role": "system", "content": system[index]},
+      {"role": "user", "content": user[index]}]
+    attempt.request = parseJson(request.body)
+    attempt.model = some(if client.transport == ltBedrock:
+      client.bedrockModels[client.bedrockModel] else: client.model)
+    attempt.decoder = %*{"max_tokens": client.maxOutputTokens, "temperature": client.temperature}
+    evidence.add(attempt)
     batch.post(request.url, request.headers, request.body, $index)
   let responses = client.curl.makeRequests(batch, client.timeoutSeconds)
   result = newSeq[BatchReply](system.len)
   for position in 0 ..< responses.len:
+    let response = responses[position].response
+    evidence[position].rawResponse = %response.body
+    for (header, field) in [("X-Softmax-Llm-Call-Id", "call"),
+        ("X-Coworld-Checkpoint-Sha256", "weights"),
+        ("X-Coworld-Tokenizer-Sha256", "tokenizer"),
+        ("X-Coworld-Chat-Template-Sha256", "template")]:
+      if response.headers[header].len > 0:
+        case field
+        of "call": evidence[position].platformCallId = some(response.headers[header])
+        of "weights": evidence[position].modelIdentity = some(response.headers[header])
+        of "tokenizer": evidence[position].tokenizerIdentity = some(response.headers[header])
+        else: evidence[position].chatTemplateSha256 = some(response.headers[header])
     try:
       result[position] = BatchReply(text: client.textOf(
-        responses[position].response, responses[position].error,
-        urls[position]))
+        response, responses[position].error, urls[position]))
+      let payload = parseJson(response.body)
+      evidence[position].rawResponse = payload
+      evidence[position].response = %result[position].text
+      evidence[position].model = some(payload["model"].getStr())
+      evidence[position].stopReason = some(payload["stop_reason"].getStr())
+      evidence[position].inputTokens = some(payload["usage"]["input_tokens"].getInt())
+      evidence[position].outputTokens = some(payload["usage"]["output_tokens"].getInt())
+      if payload.hasKey("sampling_evidence") and payload["sampling_evidence"].kind != JNull:
+        let sampled = payload["sampling_evidence"]
+        var promptTokens, completionTokens: seq[int]
+        var probabilities: seq[float]
+        for token in sampled["prompt_token_ids"]: promptTokens.add(token.getInt())
+        for token in sampled["completion_token_ids"]: completionTokens.add(token.getInt())
+        evidence[position].promptTokenIds = some(promptTokens)
+        evidence[position].sampledTokenIds = some(completionTokens)
+        if sampled["behavior_log_probs"].kind != JNull:
+          for probability in sampled["behavior_log_probs"]: probabilities.add(probability.getFloat())
+          evidence[position].behaviorLogprobs = some(probabilities)
+        evidence[position].stopReason = some(sampled["stop_reason"].getStr())
     except CatchableError as error:
       result[position] = BatchReply(error: error.msg)
+      evidence[position].rejectionReason = some(error.msg)
+    result[position].evidence = some(evidence[position])
 
 # ---- the decision layer ------------------------------------------------
 
@@ -524,6 +579,8 @@ proc decideAll*(client: LlmClient, observations: seq[JsonNode],
   ## One decision per seat, indexed BY SLOT. Never raises: any failure falls
   ## back to the `counter` scripted intent so the episode always advances.
   result = newSeq[Decision](observations.len)
+  if client != nil:
+    client.attempts = newSeq[seq[DecisionAttempt]](observations.len)
   var open: seq[int]
   for slot in 0 ..< observations.len:
     let kind = if slot < scripted.len: scripted[slot] else: skNone
@@ -556,19 +613,29 @@ proc decideAll*(client: LlmClient, observations: seq[JsonNode],
       if position >= replies.len:
         stillOpen.add(slot)
         continue
+      var evidence = if replies[position].evidence.isSome: replies[position].evidence.get()
+        else: newDecisionAttempt("pending", "test-hook", aoUnknown)
+      evidence.attemptId = "attempt-" & $attempt
+      evidence.latencyMs = some(latency.float)
       if replies[position].error.len > 0:
+        client.attempts[slot].add(evidence)
         echo "matrix-games llm: seat ", slot, " attempt ", attempt + 1,
-          " failed: ", replies[position].error
+          " failed"
         stillOpen.add(slot)
         continue
       try:
         let order = parseOrder(extractJsonObject(replies[position].text),
           observations[slot])
+        evidence.accepted = true
+        evidence.parsedAction = actionJson(order, observations[slot])
+        client.attempts[slot].add(evidence)
         result[slot] = Decision(order: order,
           source: (if attempt == 0: osLlm else: osRetry), latencyMs: latency)
       except CatchableError as error:
+        evidence.rejectionReason = some(error.msg)
+        client.attempts[slot].add(evidence)
         echo "matrix-games llm: seat ", slot, " attempt ", attempt + 1,
-          " invalid: ", error.msg
+          " invalid"
         stillOpen.add(slot)
     open = stillOpen
   for slot in open:

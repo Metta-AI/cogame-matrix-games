@@ -19,8 +19,8 @@
 ## External policies receive a seat observation and return an intent action.
 ## Existing prompt policies keep their server-side adapter.
 
-import std/[json, locks, os, sets, strutils, tables, times, unicode]
-import bitworld/runtime
+import std/[json, locks, options, os, sets, strutils, tables, times, unicode]
+import bitworld/[runtime, decision_trajectory]
 import curly
 import mummy
 import mummy/routers
@@ -35,6 +35,8 @@ type
     externalSources: seq[OrderSource]
     awaiting: seq[bool]
     actions: seq[JsonNode]
+    attempts: seq[seq[DecisionAttempt]]
+    trajectory: Option[DecisionTrajectory]
     policies: seq[string]
     registered: seq[bool]
     everRegistered: seq[bool]
@@ -149,6 +151,11 @@ proc finishEpisode(runtimeConfig: RuntimeConfig) =
     broadcastFinal(results)
     refreshSnapshotLocked()
   sleep(500)
+  if shared.trajectory.isSome:
+    let trajectory = shared.trajectory.get()
+    trajectory.finish(if results["reason"].getStr() == "complete": esCompleted else: esTruncated,
+      results, results["scores"])
+    trajectory.writeEventsToUri(getEnv(CogameSaveTrajectoryUriEnv))
   echo "matrix-games: writing replay (", replayData.len, " bytes) and results"
   ## The REPLAY first, then the results. The design note lists results first;
   ## paintbot (`src/ctf/server.nim`) and cogame-raid both write the replay
@@ -291,11 +298,14 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
             if external[slot]:
               shared.awaiting[slot] = true
               shared.actions[slot] = nil
+              shared.attempts[slot] = @[]
               if shared.playerSockets.hasKey(slot):
                 shared.playerSockets[slot].send($ %*{
                   "type": "observation",
                   "beat": beat,
-                  "observation": observations[slot]
+                  "observation": observations[slot],
+                  "input": {"system": systemPrompt(observations[slot]),
+                    "user": userPrompt(observations[slot], prompts[slot])}
                 })
         for slot in 0 ..< shared.seats:
           if external[slot]:
@@ -326,7 +336,29 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
         withLock stateLock:
           refreshSnapshotLocked()
         gameSim.runBeat()
+        if gameSim.beat == config.beats:
+          gameSim.settleComplete()
         withLock stateLock:
+          if shared.trajectory.isSome:
+            for slot in 0 ..< shared.seats:
+              let action = actionJson(gameSim.orders[slot], observations[slot])
+              var attempts = if external[slot]: shared.attempts[slot] else: client.attempts[slot]
+              var selected = none(string)
+              let accepted = decisions[slot].source in {osLlm, osRetry}
+              if accepted:
+                if attempts.len == 0:
+                  var unknown = newDecisionAttempt("external-action", "external", aoUnknown)
+                  unknown.response = shared.actions[slot]
+                  attempts.add(unknown)
+                attempts[^1].accepted = true
+                attempts[^1].parsedAction = action
+                selected = some(attempts[^1].attemptId)
+              shared.trajectory.get().recordDecision("beat-" & $beat & "-seat-" & $slot,
+                $slot, %*{"view": observations[slot], "macro_ticks": config.ticksPerBeat,
+                  "tick_before": beat * config.ticksPerBeat, "tick_after": gameSim.tick},
+                attempts, selected, action, if accepted: asAccepted else: asFallback,
+                terminal = gameSim.done,
+                fallbackOrigin = if accepted: none(string) else: some($decisions[slot].source))
           refreshSnapshotLocked()
         echo "matrix-games: beat ", beat, " done, tick ", gameSim.tick,
           ", ", gameSim.idx.interactions, " resolutions, ",
@@ -495,6 +527,9 @@ proc websocketHandler(websocket: WebSocket, event: WebSocketEvent,
           withLock stateLock:
             if shared.external[slot] and shared.awaiting[slot] and
                 payload["beat"].getInt() == gameSim.beat:
+              if payload.hasKey("attempts"):
+                for attempt in payload["attempts"]:
+                  shared.attempts[slot].add(readAttemptEvidence(attempt))
               discard parseOrder(payload["action"],
                 buildObservation(gameSim, slot))
               shared.actions[slot] = payload["action"]
@@ -546,7 +581,7 @@ proc websocketHandler(websocket: WebSocket, event: WebSocketEvent,
           " prompt chars", (if kind != skNone: ", scripted " & $kind
                             else: ", llm"), ")"
       except CatchableError as error:
-        echo "matrix-games: ignoring bad player frame: ", error.msg
+        echo "matrix-games: rejected player frame for seat ", slot
     of ErrorEvent:
       discard
     of CloseEvent:
@@ -594,6 +629,11 @@ proc runGameServer*(config: GameConfig, runtimeConfig: RuntimeConfig) =
   shared.externalSources = newSeq[OrderSource](shared.seats)
   shared.awaiting = newSeq[bool](shared.seats)
   shared.actions = newSeq[JsonNode](shared.seats)
+  shared.attempts = newSeq[seq[DecisionAttempt]](shared.seats)
+  if getEnv(CogameSaveTrajectoryUriEnv).len > 0:
+    shared.trajectory = some(newDecisionTrajectory(getEnv("COWORLD_EPISODE_ID"),
+      "matrix-" & config.matrix & "-" & $config.seed, "matrix-games",
+      getEnv("COWORLD_GAME_VERSION"), getEnv("COWORLD_SOURCE_REVISION")))
   shared.policies = newSeq[string](shared.seats)
   shared.registered = newSeq[bool](shared.seats)
   shared.everRegistered = newSeq[bool](shared.seats)

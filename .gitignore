@@ -7,3 +7,9 @@ replay-viewer/dist/
 matrix-games
 matrix-games-player
 node_modules/
+
+.bazelrc.local
+training-data/
+train_dir/
+private/
+**/*.jsonl

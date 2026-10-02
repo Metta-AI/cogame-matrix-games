@@ -147,3 +147,21 @@ suite "artifacts on disk":
     check replay{"frames"}.len == 3 * state.config.ticksPerBeat
     let results = parseJson(readFile(dir / "results.json"))
     check results{"names"}.len == Seats
+
+
+suite "private decision notes":
+  test "public replay and live events exclude private notes":
+    var state = initSim(testConfig("prisoners-dilemma", 41, 1))
+    var decisions = newSeq[Decision](Seats)
+    for slot in 0 ..< Seats:
+      decisions[slot] = scriptedDecision(buildObservation(state, slot), skCounter, osScripted)
+      decisions[slot].order.notes = "PRIVATE NOTE SENTINEL"
+    state.installOrders(decisions)
+    check "PRIVATE NOTE SENTINEL" in $state.events.records
+    let live = publicEventJson(state.events.records[0], live = true)
+    check not live.hasKey("notes")
+    check live["intent"].getStr() == "private"
+    check live["token"].getInt() == -1 and live["target"].getInt() == -1
+    state.runBeat()
+    state.settleComplete()
+    check "PRIVATE NOTE SENTINEL" notin replayBytes(state)

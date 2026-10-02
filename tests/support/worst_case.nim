@@ -9,7 +9,7 @@
 ## untested by every other gate. This fixture is the replay CI cannot otherwise
 ## produce: eight seats, every beat, each with a 64-rune remark and a 400-rune
 ## notes block, played through the same sim and written by the same
-## `replayBytes` as a hosted episode, so the static bundle loads it exactly as
+## `replayBytes` as a hosted episode, which omits private notes, so the static bundle loads it exactly as
 ## it loads a real one.
 ##
 ## The strings are built to HURT, not to look nice: each is padded to the cap

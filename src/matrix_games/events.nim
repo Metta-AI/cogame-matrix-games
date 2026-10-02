@@ -25,10 +25,19 @@ proc add*(buffer: var EventBuffer, kind: string, fields: JsonNode) =
     record[key] = value
   buffer.records.add(record)
 
+proc publicEventJson*(record: JsonNode, live = false): JsonNode =
+  result = copy(record)
+  if result.hasKey("notes"):
+    result.delete("notes")
+  if live and record["k"].getStr() == "order":
+    result["intent"] = %"private"
+    result["token"] = %(-1)
+    result["target"] = %(-1)
+
 proc toJson*(buffer: EventBuffer): JsonNode =
   result = newJArray()
   for record in buffer.records:
-    result.add(record)
+    result.add(publicEventJson(record))
 
 proc count*(buffer: EventBuffer, kind: string): int =
   for record in buffer.records:
