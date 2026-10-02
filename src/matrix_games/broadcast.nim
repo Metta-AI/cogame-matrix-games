@@ -115,7 +115,7 @@ proc buildSeats*(sim: Sim): JsonNode =
       "scoreCp": cog.scoreCp, "interactions": cog.interactions,
       "frozen": cog.freeze > 0,
       "source": $sim.orderSources[slot],
-      "intent": $sim.orders[slot].intent,
+      "intent": "private",
       "say": sim.says[slot],
       "connected": sim.connected[slot]})
 

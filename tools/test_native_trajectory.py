@@ -20,7 +20,7 @@ binary, output, revision = sys.argv[1:]
 root = Path(output)
 root.mkdir(mode=0o700, parents=True, exist_ok=False)
 reports = []
-for mode in ["accepted", "retry", "fallback", "greedy"]:
+for mode in ["accepted", "retry", "fallback", "greedy", "refusal"]:
     folder = root / mode
     folder.mkdir(mode=0o700)
     requests = []
@@ -55,6 +55,8 @@ for mode in ["accepted", "retry", "fallback", "greedy"]:
                 "stop_reason": "end_turn",
                 "usage": {"input_tokens": 100, "output_tokens": 20},
             }
+            if mode == "refusal":
+                response["stop_reason"] = "refusal"
             if mode == "greedy":
                 response["sampling_evidence"] = {
                     "prompt_token_ids": [1],
@@ -200,7 +202,10 @@ for mode in ["accepted", "retry", "fallback", "greedy"]:
                 and selected["parsed_action"] == decision["executed_action"]
             )
         else:
-            assert mode == "fallback" and decision["selected_attempt_id"] is None
+            assert (
+                mode in {"fallback", "refusal"}
+                and decision["selected_attempt_id"] is None
+            )
     for private_text in ["PRIVATE NOTE SENTINEL", "PRIVATE INVALID RESPONSE SENTINEL"]:
         assert private_text not in (folder / "replay.json").read_text()
         assert private_text not in (folder / "game.log").read_text()

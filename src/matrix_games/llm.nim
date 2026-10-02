@@ -519,8 +519,6 @@ proc runBatch(client: LlmClient, system, user: seq[string], slots: seq[int]): se
     attempt.prompt = %*[{"role": "system", "content": system[index]},
       {"role": "user", "content": user[index]}]
     attempt.request = parseJson(request.body)
-    attempt.model = some(if client.transport == ltBedrock:
-      client.bedrockModels[client.bedrockModel] else: client.model)
     attempt.decoder = %*{"max_tokens": client.maxOutputTokens, "temperature": client.temperature}
     evidence.add(attempt)
     batch.post(request.url, request.headers, request.body, $index)
@@ -540,11 +538,10 @@ proc runBatch(client: LlmClient, system, user: seq[string], slots: seq[int]): se
         of "tokenizer": evidence[position].tokenizerIdentity = some(response.headers[header])
         else: evidence[position].chatTemplateSha256 = some(response.headers[header])
     try:
-      result[position] = BatchReply(text: client.textOf(
-        response, responses[position].error, urls[position]))
+      if responses[position].error.len > 0 or response.code != 200:
+        discard client.textOf(response, responses[position].error, urls[position])
       let payload = parseJson(response.body)
       evidence[position].rawResponse = payload
-      evidence[position].response = %result[position].text
       evidence[position].model = some(payload["model"].getStr())
       evidence[position].stopReason = some(payload["stop_reason"].getStr())
       evidence[position].inputTokens = some(payload["usage"]["input_tokens"].getInt())
@@ -561,6 +558,9 @@ proc runBatch(client: LlmClient, system, user: seq[string], slots: seq[int]): se
           for probability in sampled["behavior_log_probs"]: probabilities.add(probability.getFloat())
           evidence[position].behaviorLogprobs = some(probabilities)
         evidence[position].stopReason = some(sampled["stop_reason"].getStr())
+      result[position] = BatchReply(text: client.textOf(
+        response, responses[position].error, urls[position]))
+      evidence[position].response = %result[position].text
     except CatchableError as error:
       result[position] = BatchReply(error: error.msg)
       evidence[position].rejectionReason = some(error.msg)
