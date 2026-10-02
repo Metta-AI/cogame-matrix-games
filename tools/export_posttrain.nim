@@ -1,7 +1,8 @@
 ## Export complete Matrix Games episodes as Metta post-training examples.
 ## Usage: nim r --path:src tools/export_posttrain.nim OUTPUT GAMES [FIRST_SEED] [VARIANT]
 
-import std/[json, os, osproc, strutils]
+import std/[json, options, os, osproc, posix, strutils]
+import bitworld/decision_trajectory
 import matrix_games/[sim_types, sim_config, sim_state, sim, llm]
 
 const OperatorPrompt = "Maximize your own cumulative payoff using only the visible yard and your inventory."
@@ -23,6 +24,9 @@ when isMainModule:
     quit("unknown variant: " & variant, 1)
   if dirExists(output) or fileExists(output):
     quit("output already exists: " & output, 1)
+  doAssert execProcess("git status --porcelain").strip().len == 0,
+    "Commit the qualified source before generating a pinned training corpus"
+  discard umask(Mode(0o077))
   createDir(output)
   let sourceRevision = execProcess("git rev-parse HEAD").strip()
   let manifest = parseFile("coworld_manifest_template.json")
@@ -45,22 +49,29 @@ when isMainModule:
     config.update($runtimeConfig)
     var game = initSim(config)
     var rows: seq[string]
+    let episodeId = "matrix-games-" & variant & "-" & $seed
+    let trajectory = newDecisionTrajectory(episodeId, episodeId, "matrix-games",
+      "source-" & sourceRevision[0 .. 11], sourceRevision)
     for beat in 0 ..< config.beats:
       var decisions = newSeq[Decision](Seats)
+      var observations = newSeq[JsonNode](Seats)
+      var attempts: seq[DecisionAttempt]
       for slot in 0 ..< Seats:
         let obs = buildObservation(game, slot)
+        observations[slot] = obs
         let teacher = scriptedDecision(obs, skCounter, osScripted)
         let order = teacher.order
-        var completion = %*{
-          "intent": $order.intent, "say": order.say, "notes": order.notes
-        }
-        if order.intent in {inGather, inDeny}:
-          completion["token"] = obs["legal"]["tokens"][order.token]
-        if order.intent in {inHunt, inAvoid}:
-          completion["target"] = %aliasOf(order.target)
-        let parsed = parseOrder(completion, obs)
+        let completion = actionJson(order, obs)
+        let parsed = parseOrder(extractJsonObject($completion), obs)
         doAssert parsed == order
         decisions[slot] = Decision(order: parsed, source: osScripted)
+        var attempt = newDecisionAttempt("teacher", "scripted-counter", aoTeacher)
+        attempt.prompt = %*[{"role": "system", "content": systemPrompt(obs)},
+          {"role": "user", "content": userPrompt(obs, OperatorPrompt)}]
+        attempt.response = %($completion)
+        attempt.parsedAction = actionJson(parsed, obs)
+        attempt.accepted = true
+        attempts.add(attempt)
         rows.add($(%*{
           "episode_id": "matrix-games-" & variant & "-" & $seed,
           "seed": "matrix-games-" & variant & "-" & $seed,
@@ -75,24 +86,38 @@ when isMainModule:
         }))
       game.installOrders(decisions)
       game.runBeat()
+      if game.beat == config.beats:
+        game.settleComplete()
+      for slot in 0 ..< Seats:
+        trajectory.recordDecision($ (beat * Seats + slot), $slot,
+          %*{"view": observations[slot], "macro_ticks": config.ticksPerBeat,
+            "tick_before": beat * config.ticksPerBeat, "tick_after": game.tick},
+          @[attempts[slot]], some("teacher"), actionJson(game.orders[slot], observations[slot]),
+          asAccepted, terminal = game.done)
     game.settleComplete()
     let outcome = resultsJson(game)
     doAssert outcome["reason"].getStr() == "complete"
+    trajectory.finish(esCompleted, outcome, outcome["scores"])
+    trajectory.writeCompleteEpisode(output / (episodeId & ".jsonl"))
     doAssert rows.len == config.beats * Seats
     if seed mod 5 == 0:
       validationRows.add(rows)
     else:
       trainRows.add(rows)
-    runs.add(%*{"seed": seed, "decisions": rows.len,
+    runs.add(%*{"episode_id": episodeId, "seed": seed, "decisions": rows.len,
       "scores": outcome["scores"], "ticks": outcome["ticks"]})
   writeFile(output / "train.jsonl", trainRows.join("\n") & "\n")
   writeFile(output / "validation.jsonl", validationRows.join("\n") & "\n")
   writeFile(output / "manifest.json", pretty(%*{
     "schema_version": 1,
+    "format": "coworld-private-complete-episodes-v1",
+    "sft_format": "metta-posttraining-example-v1",
     "game": "matrix-games",
     "variant": variant,
     "source_revision": sourceRevision,
     "teacher": "scripted-counter",
+    "target_policy": "scripted-counter",
+    "review_status": "unreviewed",
     "operator_prompt": OperatorPrompt,
     "train_examples": trainRows.len,
     "validation_examples": validationRows.len,

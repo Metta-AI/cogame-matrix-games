@@ -1,6 +1,6 @@
 ## Persistent JSONL bridge for Metta RL and native Puffer training.
 ## nim c -d:release --path:src -o:matrix-train-bridge tools/train_bridge.nim
-## matrix-train-bridge coworld_manifest_template.json [VARIANT]
+## matrix-train-bridge coworld_manifest_template.json [VARIANT] [--language]
 
 import std/[json, os]
 import matrix_games/[llm, sim, sim_config, sim_state, sim_types]
@@ -99,10 +99,18 @@ proc encoding(game: Sim, seat, id: int): JsonNode =
     actions.add(newJNull())
   %*{"decision_id": id, "values": values, "actions": actions}
 
+proc numericAction(order: IntentOrder, view: JsonNode): JsonNode =
+  ## The numeric research catalog projects execution onto intent/token/target.
+  result = actionJson(order, view)
+  result.delete("say")
+  result.delete("notes")
+
 when isMainModule:
-  let args = commandLineParams()
+  var args = commandLineParams()
+  let language = args.len > 0 and args[^1] == "--language"
+  if language: args.setLen(args.len - 1)
   if args.len notin 1 .. 2:
-    quit("usage: matrix-train-bridge MANIFEST [VARIANT]", 1)
+    quit("usage: matrix-train-bridge MANIFEST [VARIANT] [--language]", 1)
   let variant = if args.len == 2: args[1] else: "running-with-scissors"
   let manifest = parseFile(args[0])
   var variantConfig: JsonNode
@@ -133,23 +141,21 @@ when isMainModule:
       decisions = newSeq[Decision](Seats)
       response = game.decision(seat, id)
     of "encode":
+      doAssert not language, "numeric catalog is unavailable in hosted language mode"
       doAssert not game.done
       response = game.encoding(seat, id)
     of "teacher":
       doAssert not game.done
       let state = buildObservation(game, seat)
       let teacher = scriptedDecision(state, skCounter, osScripted)
-      let order = teacher.order
-      var action = %*{"intent": $order.intent}
-      if order.intent in {inGather, inDeny}:
-        action["token"] = state["legal"]["tokens"][order.token]
-      if order.intent in {inHunt, inAvoid}:
-        action["target"] = %aliasOf(order.target)
+      let action = if language: actionJson(teacher.order, state) else: numericAction(teacher.order, state)
       response = %*{"response": $action}
     of "step":
       doAssert not game.done and request["decision_id"].getInt() == id
-      let action = parseJson(request["response"].getStr())
-      let order = parseOrder(action, buildObservation(game, seat))
+      let view = buildObservation(game, seat)
+      let proposal = extractJsonObject(request["response"].getStr())
+      let order = parseOrder(proposal, view)
+      let action = if language: actionJson(order, view) else: numericAction(order, view)
       decisions[seat] = Decision(order: order, source: osLlm)
       inc seat
       if seat == Seats:

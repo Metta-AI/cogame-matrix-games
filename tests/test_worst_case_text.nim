@@ -23,7 +23,7 @@ suite "the worst-case model-text fixture":
     let bytes = readFile(fixturePath())
     let replay = parseReplayBytes(bytes)
 
-  test "every seat's every order event carries a FULL-CAP say and notes":
+  test "every seat's every order event carries a full-cap public remark without private notes":
     ## The load-bearing assertion of the whole fixture.
     var perSeat = newSeq[int](Seats)
     var orders = 0
@@ -36,13 +36,11 @@ suite "the worst-case model-text fixture":
       check seat < Seats
       perSeat[seat].inc
       let say = record{"say"}.getStr()
-      let notes = record{"notes"}.getStr()
       ## Exactly at the cap, in RUNES, and unshortened: `cleanText` would have
       ## cut a longer string to `cap - 1` runes and appended an ellipsis.
       check say.runeLen == MaxSayRunes
-      check notes.runeLen == MaxNotesRunes
+      check not record.hasKey("notes")
       check "\u2026" notin say
-      check "\u2026" notin notes
       ## Multi-byte, so the cap being a RUNE cap is part of what is fixed.
       check say.len > say.runeLen
       check record{"source"}.getStr() == "llm"

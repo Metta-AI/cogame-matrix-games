@@ -62,6 +62,10 @@ suite "the chrome state frame":
     for key, _ in frame:
       check (key in ChromeKeys) or (key in extras)
 
+  test "live spectator seats do not expose pending order intent":
+    for seat in frame["seats"]:
+      check seat["intent"].getStr() == "private"
+
   test "teams are exactly the K token keys chrome_common already knows":
     var keys: seq[string]
     for key, _ in frame{"teams"}:

@@ -115,7 +115,7 @@ proc buildSeats*(sim: Sim): JsonNode =
       "scoreCp": cog.scoreCp, "interactions": cog.interactions,
       "frozen": cog.freeze > 0,
       "source": $sim.orderSources[slot],
-      "intent": $sim.orders[slot].intent,
+      "intent": "private",
       "say": sim.says[slot],
       "connected": sim.connected[slot]})
 
@@ -159,7 +159,7 @@ proc buildStateJson*(sim: Sim, tracker: var BroadcastTracker,
   var frameEvents = newJArray()
   for record in sim.events.records:
     if record{"t"}.getInt(-1) == sim.tick:
-      frameEvents.add(record)
+      frameEvents.add(publicEventJson(record, live = true))
   let over = sim.done or sim.tick >= maxTicks(sim.config)
   result = %*{
     "t": sim.tick,

@@ -3,3 +3,8 @@ dist
 scratch
 replay-viewer/dist
 node_modules
+
+training-data/
+train_dir/
+private/
+**/*.jsonl
