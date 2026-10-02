@@ -335,8 +335,9 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
                   unknown.response = shared.actions[slot]
                   shared.attempts[slot].add(unknown)
                 shared.attempts[slot][^1].accepted = true
-                shared.attempts[slot][^1].parsedAction =
-                  actionJson(decisions[slot].order, observations[slot])
+                if shared.attempts[slot][^1].origin != aoModel:
+                  shared.attempts[slot][^1].parsedAction =
+                    actionJson(decisions[slot].order, observations[slot])
               else:
                 decisions[slot] = scriptedDecision(observations[slot],
                   skCounter, osFallback)
@@ -503,6 +504,23 @@ proc globalUpgradeHandler(request: Request) {.gcsafe.} =
       if shared.snapshot.len > 0:
         websocket.send(shared.snapshot)
 
+proc acceptExternalAction(state: var ServerState, sim: Sim, slot: int,
+    payload: JsonNode) =
+  if payload.hasKey("attempts"):
+    for envelope in payload["attempts"]:
+      var evidence = readAttemptEvidence(envelope)
+      if evidence.origin in {aoTeacher, aoHuman}: evidence.origin = aoUnknown
+      state.attempts[slot].add(evidence)
+  let observation = buildObservation(sim, slot)
+  let canonical = actionJson(parseOrder(payload["action"], observation), observation)
+  if state.attempts[slot].len > 0 and state.attempts[slot][^1].origin == aoModel:
+    let generated = parseOrder(extractJsonObject(state.attempts[slot][^1].response.getStr()), observation)
+    state.attempts[slot][^1].parsedAction = actionJson(generated, observation)
+    if state.attempts[slot][^1].rejectionReason.isSome or
+        state.attempts[slot][^1].parsedAction != canonical:
+      raise newException(MatrixGamesError, "model response differs from submitted action")
+  state.actions[slot] = payload["action"]
+
 proc websocketHandler(websocket: WebSocket, event: WebSocketEvent,
     message: Message) {.gcsafe.} =
   {.gcsafe.}:
@@ -529,12 +547,7 @@ proc websocketHandler(websocket: WebSocket, event: WebSocketEvent,
           withLock stateLock:
             if shared.external[slot] and shared.awaiting[slot] and
                 payload["beat"].getInt() == gameSim.beat:
-              if payload.hasKey("attempts"):
-                for attempt in payload["attempts"]:
-                  shared.attempts[slot].add(readAttemptEvidence(attempt))
-              discard parseOrder(payload["action"],
-                buildObservation(gameSim, slot))
-              shared.actions[slot] = payload["action"]
+              shared.acceptExternalAction(gameSim, slot, payload)
           return
         if payload{"type"}.getStr() == "register":
           if payload["control"].getStr() != "external":
@@ -583,6 +596,10 @@ proc websocketHandler(websocket: WebSocket, event: WebSocketEvent,
           " prompt chars", (if kind != skNone: ", scripted " & $kind
                             else: ", llm"), ")"
       except CatchableError as error:
+        withLock stateLock:
+          if shared.awaiting[slot] and shared.attempts[slot].len > 0:
+            shared.attempts[slot][^1].accepted = false
+            shared.attempts[slot][^1].rejectionReason = some(error.msg)
         echo "matrix-games: rejected player frame for seat ", slot
     of ErrorEvent:
       discard
