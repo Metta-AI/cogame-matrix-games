@@ -341,13 +341,12 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
               else:
                 decisions[slot] = scriptedDecision(observations[slot],
                   skCounter, osFallback)
-        gameSim.installOrders(decisions)
         withLock stateLock:
+          gameSim.installOrders(decisions)
           refreshSnapshotLocked()
-        gameSim.runBeat()
-        if gameSim.beat == config.beats:
-          gameSim.settleComplete()
-        withLock stateLock:
+          gameSim.runBeat()
+          if gameSim.beat == config.beats:
+            gameSim.settleComplete()
           if shared.trajectory.isSome:
             for slot in 0 ..< shared.seats:
               let action = actionJson(gameSim.orders[slot], observations[slot])
@@ -519,7 +518,8 @@ proc acceptExternalAction(state: var ServerState, sim: Sim, slot: int,
     if state.attempts[slot][^1].rejectionReason.isSome or
         state.attempts[slot][^1].parsedAction != canonical:
       raise newException(MatrixGamesError, "model response differs from submitted action")
-  state.actions[slot] = payload["action"]
+  # The socket callback destroys its payload after releasing the state lock.
+  state.actions[slot] = payload["action"].copy()
 
 proc websocketHandler(websocket: WebSocket, event: WebSocketEvent,
     message: Message) {.gcsafe.} =

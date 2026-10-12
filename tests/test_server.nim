@@ -3,6 +3,15 @@ include ../src/matrix_games/server
 import support/helpers
 
 suite "external training authority":
+  test "accepted actions outlive the socket payload independently":
+    let game = initSim(testConfig("chicken", 17, 2))
+    var state = ServerState(actions: newSeq[JsonNode](Seats),
+      attempts: newSeq[seq[DecisionAttempt]](Seats))
+    let payload = %*{"action": {"intent": "hold", "say": "public", "notes": "private"}}
+    state.acceptExternalAction(game, 0, payload)
+    payload["action"]["intent"] = %"hunt"
+    check state.actions[0]["intent"].getStr() == "hold"
+
   test "player assertions cannot create teacher labels":
     for origin in [aoTeacher, aoHuman]:
       let game = initSim(testConfig("chicken", 17, 2))
