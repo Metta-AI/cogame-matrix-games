@@ -301,7 +301,9 @@ proc buildObservation*(sim: Sim, slot: int): JsonNode =
       "row": aliasOf(rowSeat), "col": aliasOf(colSeat),
       "cell": [spec.tokens[record{"cellRow"}.getInt()],
                spec.tokens[record{"cellCol"}.getInt()]],
-      "rowMix": record{"rowMix"}, "colMix": record{"colMix"},
+      # Observations outlive the state lock on both the game and socket threads.
+      # Their JSON nodes must not share non-atomic reference counts with events.
+      "rowMix": record{"rowMix"}.copy(), "colMix": record{"colMix"}.copy(),
       "rowCp": record{"rowCp"}.getInt(), "colCp": record{"colCp"}.getInt()
     })
 

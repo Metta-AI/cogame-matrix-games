@@ -35,6 +35,15 @@ if getEnv(HashSeedEnv).len > 0 or getEnv(HashChildEnv).len > 0:
   quit(0)
 
 suite "the arena":
+  test "observations own their resolution JSON across thread lifetimes":
+    let state = runScripted("prisoners-dilemma", 17, certMix(), 2)
+    let observation = buildObservation(state, 0)
+    let original = observation["log"].copy()
+    require original.len > 0
+    observation["log"][0]["rowMix"].elems[0] = %(-1)
+    observation["log"][0]["colMix"].elems[0] = %(-1)
+    check buildObservation(state, 1)["log"] == original
+
   test "the committed map is 24 x 14, symmetric, connected and 216 free":
     check ArenaRows.len == BoardH
     for row in ArenaRows:
