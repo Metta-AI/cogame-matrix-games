@@ -273,7 +273,12 @@ def main() -> int:
                 " changes everything. A merged port of Melting Pot's"
                 " *_in_the_matrix family: your inventory mix IS your strategy,"
                 " and an interaction beam resolves it against whoever you hit.",
-            "replay_viewer": {"bundle": "static-replay-viewer"},
+            # replay_compression: the platform stores the PUBLIC browser
+            # copy of each replay as gzip bytes (no Content-Encoding, same
+            # URL); the Worker sniffs the gzip magic and inflates before the
+            # wasm loader.
+            "replay_viewer": {"bundle": "static-replay-viewer",
+                              "replay_compression": "gzip"},
             "runnable": {
                 "type": "game",
                 "image": image,

@@ -14,7 +14,8 @@
     "owner": "daveey@softmax.com",
     "description": "Eight cogs, a yard full of tokens, and one payoff matrix that changes everything. A merged port of Melting Pot's *_in_the_matrix family: your inventory mix IS your strategy, and an interaction beam resolves it against whoever you hit.",
     "replay_viewer": {
-      "bundle": "static-replay-viewer"
+      "bundle": "static-replay-viewer",
+      "replay_compression": "gzip"
     },
     "runnable": {
       "type": "game",

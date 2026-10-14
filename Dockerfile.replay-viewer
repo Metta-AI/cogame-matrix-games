@@ -60,6 +60,9 @@ RUN rm -f nim.cfg && \
   grep -q 'static_replay.js' replay-viewer/dist/index.html && \
   grep -q 'static_replay_worker.js' replay-viewer/dist/static_replay.js && \
   grep -q 'coworld-replay' replay-viewer/dist/static_replay.js && \
+  grep -q "tell('phase'" replay-viewer/dist/static_replay.js && \
+  grep -q 'replay_fetch_end' replay-viewer/dist/static_replay_worker.js && \
+  grep -q 'DecompressionStream' replay-viewer/dist/static_replay_worker.js && \
   ! grep -q '<!-- BROADCAST_CORE -->' replay-viewer/dist/index.html && \
   test -f replay-viewer/dist/art/walls/wall_h.jpg && \
   test -f replay-viewer/dist/art/walls/wall_v.jpg && \
