@@ -138,9 +138,9 @@ jobs:
               else
                 flags="--hints:off"
               fi
-              echo "::group::nim r ${flags} --path:src ${t}"
+              echo "::group::nim r --parallelBuild:1 ${flags} --path:src ${t}"
               # shellcheck disable=SC2086
-              if ! nim r ${flags} --path:src --out:"/tmp/${m}-$(basename "${t}" .nim)" "${t}"; then
+              if ! nim r --parallelBuild:1 ${flags} --path:src --out:"/tmp/${m}-$(basename "${t}" .nim)" "${t}"; then
                 echo "::error::FAILED (${m}) ${t}"
                 fail=1
               fi
@@ -151,21 +151,26 @@ jobs:
 
       - name: Language and numeric bridges remain separate
         run: |
-          nim c -d:release --path:src --out:/tmp/matrix-train-bridge tools/train_bridge.nim
+          nim c --parallelBuild:1 -d:release --path:src --out:/tmp/matrix-train-bridge tools/train_bridge.nim
           python3 tools/test_train_bridge.py /tmp/matrix-train-bridge
+          python3 tools/test_prompt_games.py /tmp/matrix-train-bridge
 
       - name: Native complete private trajectory joins
         run: |
           python3 -m pip install 'websockets==16.1.1'
-          nim c -d:release --path:src --out:/tmp/matrix-native-game src/matrix_games.nim
-          python3 tools/test_native_trajectory.py /tmp/matrix-native-game /tmp/matrix-native-trajectories "$(git rev-parse HEAD)"
+          nim c --parallelBuild:1 -d:release --path:src --out:/tmp/matrix-native-game src/matrix_games.nim
+          nim c --parallelBuild:1 -d:release --path:src --out:/tmp/matrix-check-episode tools/check_episode.nim
+          python3 tools/test_native_trajectory.py /tmp/matrix-native-game /tmp/matrix-native-trajectories "$(git rev-parse HEAD)" /tmp/matrix-check-episode
+          python3 tools/test_native_trajectory.py /tmp/matrix-native-game /tmp/matrix-native-published "$(git rev-parse HEAD)" /tmp/matrix-check-episode --published --wording heldout-reference --mode retry
 
       - name: Complete teacher episodes for every variant
         run: |
-          nim c -d:release --path:src --out:/tmp/matrix-export tools/export_posttrain.nim
+          nim c --parallelBuild:1 -d:release --path:src --out:/tmp/matrix-export tools/export_posttrain.nim
           for variant in running-with-scissors prisoners-dilemma chicken stag-hunt bach-or-stravinsky pure-coordination rationalizable-coordination; do
-            /tmp/matrix-export "/tmp/matrix-${variant}" 10 1 "$variant"
-            python3 tools/test_training_corpus.py "/tmp/matrix-${variant}"
+            for wording in canonical plain numbered questions reordered; do
+              /tmp/matrix-export "/tmp/matrix-${variant}-${wording}" 10 1 "$variant" "$wording" 0
+              python3 tools/test_training_corpus.py "/tmp/matrix-${variant}-${wording}" /tmp/matrix-check-episode
+            done
           done
 
   # ---------------------------------------------------------------------
