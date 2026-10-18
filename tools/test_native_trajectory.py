@@ -105,7 +105,7 @@ for mode in (
     listener.bind(("127.0.0.1", 0))
     port = listener.getsockname()[1]
     listener.close()
-    config = {
+    config: dict = {
         "seed": 17,
         "num_agents": 8,
         "matrix": "prisoners-dilemma",
@@ -125,9 +125,18 @@ for mode in (
                 Path(__file__).resolve().parents[1] / "coworld_manifest_template.json"
             ).read_text()
         )
-        config = next(
-            v["game_config"] for v in manifest["variants"] if v["id"] == args.variant
-        ).copy()
+        config = {
+            key: schema["default"]
+            for key, schema in manifest["game"]["config_schema"]["properties"].items()
+            if "default" in schema
+        }
+        config.update(
+            next(
+                v["game_config"]
+                for v in manifest["variants"]
+                if v["id"] == args.variant
+            )
+        )
         config.update(
             seed=17,
             tokens=[str(i) for i in range(8)],
