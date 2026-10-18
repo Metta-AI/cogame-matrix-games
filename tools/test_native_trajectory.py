@@ -253,6 +253,10 @@ for mode in (
             archive = calls[attempt["platform_call_id"]]
             assert decision["seat"] == archive["caller_slot"]
             assert attempt["request"] == archive["caller_request"]
+            assert attempt["prompt"] == [
+                {"role": "system", "content": attempt["request"]["system"]},
+                *attempt["request"]["messages"],
+            ]
             assert attempt["request"]["model"] == "fixture/native"
             assert (
                 attempt["model"]
