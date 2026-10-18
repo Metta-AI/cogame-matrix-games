@@ -1,59 +1,59 @@
-"""Validate complete private episodes and exact projected teacher labels."""
+"""Validate complete private candidates through the native replay verifier."""
 
+import hashlib
 import json
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
-root = Path(sys.argv[1])
+root, verifier = map(Path, sys.argv[1:])
 manifest = json.loads((root / "manifest.json").read_text())
-assert manifest["format"] == "coworld-private-complete-episodes-v1"
+assert manifest["format"] == "coworld-private-candidates-v1"
+assert manifest["review_required"]
 assert stat.S_IMODE(root.stat().st_mode) == 0o700
-labels = {}
-for split in ["train", "validation"]:
-    path = root / (split + ".jsonl")
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    rows = [json.loads(line) for line in path.read_text().splitlines()]
-    assert len(rows) == manifest[split + "_examples"] > 0
-    for row in rows:
-        labels[(row["episode_id"], str(row["decision_id"]))] = row
+assert not (root / "train.jsonl").exists() and not (root / "validation.jsonl").exists()
+aggregate = []
 for run in manifest["runs"]:
-    path = root / (run["episode_id"] + ".jsonl")
+    path = root / run["trajectory"]
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    episode = json.loads(path.read_text())
-    assert episode["episode"]["status"] == "completed"
-    assert episode["episode"]["seed_family"] == "matrix-games-" + str(run["seed"])
-    assert episode["episode"]["source_revision"] == manifest["source_revision"]
-    assert len(episode["decisions"]) == run["decisions"]
-    assert all(decision["terminal"] for decision in episode["decisions"][-8:])
-    for decision in episode["decisions"]:
-        selected = next(
-            attempt
-            for attempt in decision["attempts"]
-            if attempt["attempt_id"] == decision["selected_attempt_id"]
-        )
+    records = [json.loads(line) for line in path.read_text().splitlines()]
+    aggregate.extend(records)
+    episode = records[-1]
+    decisions = records[:-1]
+    assert episode["status"] == "completed"
+    assert episode["seed_family"] == "matrix-games-" + str(run["seed"])
+    assert episode["source_revision"] == manifest["source_revision"]
+    assert len(decisions) == run["decisions"]
+    assert all(decision["terminal"] for decision in decisions[-8:])
+    subprocess.run([verifier, path, root / run["replay"]], check=True)
+    for decision in decisions:
+        (selected,) = decision["attempts"]
+        assert selected["attempt_id"] == decision["selected_attempt_id"]
         assert (
-            selected["origin"] == "teacher"
-            and selected["policy"] == manifest["target_policy"]
+            selected["origin"] == "teacher" and selected["policy"] == "scripted-counter"
         )
         assert (
             selected["accepted"]
             and selected["parsed_action"] == decision["executed_action"]
         )
-        label = labels.pop((run["episode_id"], decision["decision_id"]))
-        assert label["prompt"] == selected["prompt"]
-        assert (
-            json.loads(label["completion"][0]["content"]) == decision["executed_action"]
-        )
-        observation = decision["observation"]
-        assert (
-            observation["tick_after"] - observation["tick_before"]
-            == observation["macro_ticks"]
-        )
-assert not labels
-assert stat.S_IMODE((root / "manifest.json").stat().st_mode) == 0o600
+        assert selected["request"] is None and selected["platform_call_id"] is None
+        assert json.loads(selected["response"]) == decision["executed_action"]
+        metadata = decision["observation"]["prompt_template"]
+        assert metadata["variant"] == manifest["prompt_configuration"]["variant"]
+        for role, index in (("system", 0), ("user", 1)):
+            assert (
+                metadata[role + "_sha256"]
+                == hashlib.sha256(
+                    selected["prompt"][index]["content"].encode()
+                ).hexdigest()
+            )
+assert aggregate == [
+    json.loads(line) for line in (root / "trajectories.jsonl").read_text().splitlines()
+]
+assert all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in root.iterdir())
 print(
-    "Private complete episodes and exact teacher projections passed:",
+    "Private complete candidates and replay checks passed:",
     manifest["variant"],
     len(manifest["runs"]),
 )

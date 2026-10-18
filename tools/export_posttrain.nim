@@ -1,9 +1,9 @@
 ## Export complete Matrix Games episodes as Metta post-training examples.
-## Usage: nim r --path:src tools/export_posttrain.nim OUTPUT GAMES [FIRST_SEED] [VARIANT]
+## Usage: nim r --path:src tools/export_posttrain.nim OUTPUT GAMES [FIRST_SEED] [VARIANT] [PROMPT_VARIANT PROMPT_SEED]
 
 import std/[json, options, os, osproc, posix, strutils]
 import bitworld/decision_trajectory
-import matrix_games/[sim_types, sim_config, sim_state, sim, llm]
+import matrix_games/[sim_types, sim_config, sim_state, sim, llm, prompts, replays, qualification]
 
 const OperatorPrompt = "Maximize your own cumulative payoff using only the visible yard and your inventory."
 const Variants = ["running-with-scissors", "prisoners-dilemma", "chicken",
@@ -12,12 +12,16 @@ const Variants = ["running-with-scissors", "prisoners-dilemma", "chicken",
 
 when isMainModule:
   let args = commandLineParams()
-  if args.len notin 2 .. 4:
-    quit("usage: export_posttrain OUTPUT GAMES [FIRST_SEED] [VARIANT]", 1)
+  if args.len notin [2, 3, 4, 6]:
+    quit("usage: export_posttrain OUTPUT GAMES [FIRST_SEED] [VARIANT] [PROMPT_VARIANT PROMPT_SEED]", 1)
   let output = args[0]
   let games = parseInt(args[1])
   let firstSeed = if args.len >= 3: parseInt(args[2]) else: 1
-  let variant = if args.len == 4: args[3] else: Variants[0]
+  let variant = if args.len >= 4: args[3] else: Variants[0]
+  let selection = promptSelection(if args.len == 6:
+    %*{"promptVariant": args[4], "promptSeed": parseInt(args[5])} else: newJObject())
+  doAssert selection.selectedVariant notin {pvHeldoutBriefing, pvHeldoutReference},
+    "held-out wording is evaluation only"
   if games < 10 or firstSeed < 1:
     quit("at least ten games and a positive first seed are required", 1)
   if variant notin Variants:
@@ -36,8 +40,7 @@ when isMainModule:
       variantConfig = entry["game_config"]
   doAssert not variantConfig.isNil
   var
-    trainRows: seq[string]
-    validationRows: seq[string]
+    episodes: seq[string]
     runs = newJArray()
   for seed in firstSeed ..< firstSeed + games:
     var config = defaultGameConfig()
@@ -48,10 +51,9 @@ when isMainModule:
     runtimeConfig["seed"] = %seed
     config.update($runtimeConfig)
     var game = initSim(config)
-    var rows: seq[string]
-    let episodeId = "matrix-games-" & variant & "-" & $seed
+    let episodeId = "matrix-games-" & variant & "-" & $seed & "-" & $selection.selectedVariant & "-" & $selection.seed
     let trajectory = newDecisionTrajectory(episodeId, "matrix-games-" & $seed, "matrix-games",
-      "source-" & sourceRevision[0 .. 11], sourceRevision)
+      "source-" & sourceRevision, sourceRevision)
     for beat in 0 ..< config.beats:
       var decisions = newSeq[Decision](Seats)
       var observations = newSeq[JsonNode](Seats)
@@ -66,24 +68,12 @@ when isMainModule:
         doAssert parsed == order
         decisions[slot] = Decision(order: parsed, source: osScripted)
         var attempt = newDecisionAttempt("teacher", "scripted-counter", aoTeacher)
-        attempt.prompt = %*[{"role": "system", "content": systemPrompt(obs)},
+        attempt.prompt = %*[{"role": "system", "content": systemPrompt(selection, obs)},
           {"role": "user", "content": userPrompt(obs, OperatorPrompt)}]
         attempt.response = %($completion)
         attempt.parsedAction = actionJson(parsed, obs)
         attempt.accepted = true
         attempts.add(attempt)
-        rows.add($(%*{
-          "episode_id": "matrix-games-" & variant & "-" & $seed,
-          "seed": "matrix-games-" & $seed,
-          "decision_id": beat * Seats + slot,
-          "prompt": [
-            {"role": "system", "content": systemPrompt(obs)},
-            {"role": "user", "content": userPrompt(obs, OperatorPrompt)}
-          ],
-          "completion": [{"role": "assistant", "content": $completion}],
-          "game": "matrix-games",
-          "action_schema_revision": "matrix-games-order-v1"
-        }))
       game.installOrders(decisions)
       game.runBeat()
       if game.beat == config.beats:
@@ -91,36 +81,30 @@ when isMainModule:
       for slot in 0 ..< Seats:
         trajectory.recordDecision($ (beat * Seats + slot), $slot,
           %*{"view": observations[slot], "macro_ticks": config.ticksPerBeat,
-            "tick_before": beat * config.ticksPerBeat, "tick_after": game.tick},
+            "tick_before": beat * config.ticksPerBeat, "tick_after": game.tick,
+            "operator_prompt": OperatorPrompt,
+            "prompt_template": selection.promptMetadata(systemPrompt(selection, observations[slot]),
+              userPrompt(observations[slot], OperatorPrompt))},
           @[attempts[slot]], some("teacher"), actionJson(game.orders[slot], observations[slot]),
           asAccepted, terminal = game.done)
     game.settleComplete()
     let outcome = resultsJson(game)
     doAssert outcome["reason"].getStr() == "complete"
     trajectory.finish(esCompleted, outcome, outcome["scores"])
-    trajectory.writeCompleteEpisode(output / (episodeId & ".jsonl"))
-    doAssert rows.len == config.beats * Seats
-    if seed mod 5 == 0:
-      validationRows.add(rows)
-    else:
-      trainRows.add(rows)
-    runs.add(%*{"episode_id": episodeId, "seed": seed, "decisions": rows.len,
+    let jsonl = trajectory.eventsJsonl()
+    let replay = replayJson(game, outcome)
+    verifyEpisode(jsonl, replay)
+    trajectory.writeEvents(output / (episodeId & ".jsonl"))
+    writeFile(output / (episodeId & ".replay.json"), $replay & "\n")
+    episodes.add(jsonl)
+    runs.add(%*{"episode_id": episodeId, "seed": seed, "decisions": config.beats * Seats,
+      "trajectory": episodeId & ".jsonl", "replay": episodeId & ".replay.json",
       "scores": outcome["scores"], "ticks": outcome["ticks"]})
-  writeFile(output / "train.jsonl", trainRows.join("\n") & "\n")
-  writeFile(output / "validation.jsonl", validationRows.join("\n") & "\n")
+  writeFile(output / "trajectories.jsonl", episodes.join(""))
   writeFile(output / "manifest.json", pretty(%*{
-    "schema_version": 1,
-    "format": "coworld-private-complete-episodes-v1",
-    "sft_format": "metta-posttraining-example-v1",
-    "game": "matrix-games",
-    "variant": variant,
-    "source_revision": sourceRevision,
-    "teacher": "scripted-counter",
-    "target_policy": "scripted-counter",
-    "review_status": "unreviewed",
-    "operator_prompt": OperatorPrompt,
-    "train_examples": trainRows.len,
-    "validation_examples": validationRows.len,
-    "runs": runs
+    "schema_version": "1", "format": "coworld-private-candidates-v1",
+    "review_required": true, "game": "matrix-games", "variant": variant,
+    "source_revision": sourceRevision, "teacher": "scripted-counter",
+    "prompt_configuration": selection.selectionMetadata, "runs": runs
   }) & "\n")
-  echo "train=", trainRows.len, " validation=", validationRows.len
+  echo games, " complete review-required candidates"

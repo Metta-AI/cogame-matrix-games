@@ -3,7 +3,7 @@
 ## matrix-train-bridge coworld_manifest_template.json [VARIANT] [--language]
 
 import std/[json, os]
-import matrix_games/[llm, sim, sim_config, sim_state, sim_types]
+import matrix_games/[llm, sim, sim_config, sim_state, sim_types, prompts]
 
 const OperatorPrompt = "Maximize your own cumulative payoff using only the visible yard and your inventory."
 const MaxTokens = 3
@@ -15,8 +15,11 @@ proc seedOf(value: string): int =
     hash = (hash xor uint32(ord(ch))) * 16777619'u32
   int(hash and 0x7fffffff'u32)
 
-proc decision(game: Sim, seat, id: int): JsonNode =
+proc decision(game: Sim, selection: PromptSelection, seat, id: int): JsonNode =
   let state = buildObservation(game, seat)
+  let system = systemPrompt(selection, state)
+  let user = userPrompt(state, OperatorPrompt)
+  state["prompt_template"] = selection.promptMetadata(system, user)
   %*{
     "kind": "decision",
     "game": "matrix-games",
@@ -27,8 +30,8 @@ proc decision(game: Sim, seat, id: int): JsonNode =
     "semantic_view": state,
     "inbox": [],
     "messages": [
-      {"role": "system", "content": systemPrompt(state)},
-      {"role": "user", "content": userPrompt(state, OperatorPrompt)}
+      {"role": "system", "content": system},
+      {"role": "user", "content": user}
     ],
     "speech_messages": [],
     "action_schema": {"type": "object", "required": ["intent"]},
@@ -119,6 +122,7 @@ when isMainModule:
       variantConfig = entry["game_config"]
   doAssert not variantConfig.isNil, "unknown variant: " & variant
   var game: Sim
+  var selection: PromptSelection
   var seat = 0
   var id = 0
   var decisions = newSeq[Decision](Seats)
@@ -128,6 +132,10 @@ when isMainModule:
     case request["kind"].getStr()
     of "reset":
       doAssert request["players"].getInt() == Seats
+      selection = promptSelection(request)
+      if request.hasKey("split") and request["split"].getStr() == "train":
+        doAssert selection.selectedVariant notin {pvHeldoutBriefing, pvHeldoutReference},
+          "held-out wording is evaluation only"
       var config = defaultGameConfig()
       let runtimeConfig = copy(variantConfig)
       runtimeConfig["tokens"] = newJArray()
@@ -139,7 +147,7 @@ when isMainModule:
       seat = 0
       id = 0
       decisions = newSeq[Decision](Seats)
-      response = game.decision(seat, id)
+      response = game.decision(selection, seat, id)
     of "encode":
       doAssert not language, "numeric catalog is unavailable in hosted language mode"
       doAssert not game.done
@@ -173,7 +181,7 @@ when isMainModule:
           scores[$slot] = outcome["scores"][slot]
         observation = %*{"kind": "terminal", "scores": scores}
       else:
-        observation = game.decision(seat, id)
+        observation = game.decision(selection, seat, id)
       response = %*{"kind": "accepted", "action": action,
         "observation": observation}
     else:

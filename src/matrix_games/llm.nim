@@ -20,7 +20,7 @@
 import std/[json, math, options, os, strutils, times]
 import bitworld/[runtime, decision_trajectory]
 import curly
-import sim_types, sim_config, scripted
+import sim_types, sim_config, scripted, prompts
 
 const
   AnthropicUrl = "https://api.anthropic.com/v1/messages"
@@ -160,14 +160,13 @@ proc matrixTable(obs: JsonNode): string =
         $rules{"colPay"}[i][j].getInt())
     result.add("\n")
 
-proc systemPrompt*(obs: JsonNode): string =
+proc systemPrompt*(selection: PromptSelection, obs: JsonNode): string =
   let rules = obs{"rules"}
   var tokens: seq[string]
   for name in rules{"tokens"}:
     tokens.add(name.getStr())
-  result = "You are " & obs{"name"}.getStr().toUpperAscii() &
-    ", one of eight cogs in a walled yard playing MATRIX GAMES, variant " &
-    obs{"variant"}.getStr().toUpperAscii() & ".\n"
+  result = selection.introduction(obs{"name"}.getStr().toUpperAscii(),
+    obs{"variant"}.getStr().toUpperAscii())
   if rules{"crossCampOnly"}.getBool(false):
     result.add("Your camp is " & obs{"camp"}.getStr().toUpperAscii() &
       ". Interactions only resolve BETWEEN camps: a beam at your own camp " &
@@ -574,7 +573,7 @@ proc scriptedDecision*(obs: JsonNode, kind: ScriptKind,
   order.say = scriptedSay(kind)
   Decision(order: order, source: source, latencyMs: 0)
 
-proc decideAll*(client: LlmClient, observations: seq[JsonNode],
+proc decideAll*(client: LlmClient, selection: PromptSelection, observations: seq[JsonNode],
     prompts: seq[string], scripted: seq[ScriptKind]): seq[Decision] =
   ## One decision per seat, indexed BY SLOT. Never raises: any failure falls
   ## back to the `counter` scripted intent so the episode always advances.
@@ -599,7 +598,7 @@ proc decideAll*(client: LlmClient, observations: seq[JsonNode],
     var system: seq[string]
     var user: seq[string]
     for slot in open:
-      system.add(systemPrompt(observations[slot]))
+      system.add(systemPrompt(selection, observations[slot]))
       var text = userPrompt(observations[slot],
         (if slot < prompts.len: prompts[slot] else: ""))
       if attempt > 0:

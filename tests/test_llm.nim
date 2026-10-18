@@ -11,7 +11,7 @@ import std/[json, strutils, unicode, unittest]
 import curly
 import support/helpers
 import matrix_games/[sim_types, sim_config, matrices, sim_state, sim,
-  scripted, llm]
+  scripted, llm, prompts]
 
 proc observationSet(): seq[JsonNode] =
   var state = initSim(testConfig("prisoners-dilemma", 41))
@@ -91,7 +91,7 @@ suite "reply validation":
     for name in obs{"legal"}{"targets"}:
       check name.getStr() in user
     check "operator guidance here" in user
-    check "begin with the character {" in systemPrompt(obs)
+    check "begin with the character {" in systemPrompt(PromptSelection(), obs)
 
 
 suite "the batch contract":
@@ -106,7 +106,7 @@ suite "the batch contract":
       sizes.add(system.len)
       for _ in 0 ..< system.len:
         result.add(BatchReply(text: "{\"intent\":\"hold\",\"say\":\"ok\"}")))
-    let decisions = client.decideAll(observations, newSeq[string](Seats),
+    let decisions = client.decideAll(PromptSelection(), observations, newSeq[string](Seats),
       newSeq[ScriptKind](Seats))
     check sizes == @[Seats]
     check client.batchSizes == @[Seats]
@@ -114,7 +114,7 @@ suite "the batch contract":
       check decision.source == osLlm
       check decision.order.intent == inHold
     ## A second batch must not start inside minBeatSeconds of the first.
-    discard client.decideAll(observations, newSeq[string](Seats),
+    discard client.decideAll(PromptSelection(), observations, newSeq[string](Seats),
       newSeq[ScriptKind](Seats))
     check client.batchStarts.len == 2
     check client.batchStarts[1] - client.batchStarts[0] >=
@@ -133,7 +133,7 @@ suite "the batch contract":
     var kinds = newSeq[ScriptKind](Seats)
     kinds[0] = skCounter
     kinds[1] = skAlwaysFirst
-    let decisions = client.decideAll(observations, newSeq[string](Seats),
+    let decisions = client.decideAll(PromptSelection(), observations, newSeq[string](Seats),
       kinds)
     check sizes == @[Seats - 2]
     check decisions[0].source == osScripted
@@ -153,7 +153,7 @@ suite "degrade, never hang":
         check "previous reply was invalid" in user[0]
       for _ in 0 ..< system.len:
         result.add(BatchReply(text: "{\"intent\":\"teleport\"}")))
-    let decisions = client.decideAll(observations, newSeq[string](Seats),
+    let decisions = client.decideAll(PromptSelection(), observations, newSeq[string](Seats),
       newSeq[ScriptKind](Seats))
     check attempts == 2
     for decision in decisions:
@@ -174,7 +174,7 @@ suite "degrade, never hang":
           result.add(BatchReply(text: "no json here"))
         else:
           result.add(BatchReply(text: "{\"intent\":\"hold\"}")))
-    let decisions = client.decideAll(observations, newSeq[string](Seats),
+    let decisions = client.decideAll(PromptSelection(), observations, newSeq[string](Seats),
       newSeq[ScriptKind](Seats))
     for decision in decisions:
       check decision.source == osRetry
@@ -197,7 +197,7 @@ suite "degrade, never hang":
         user: seq[string], timeout: int): seq[BatchReply] {.closure.} =
       for index in 0 ..< system.len:
         result.add(failures[index mod failures.len]))
-    let decisions = client.decideAll(observations, newSeq[string](Seats),
+    let decisions = client.decideAll(PromptSelection(), observations, newSeq[string](Seats),
       newSeq[ScriptKind](Seats))
     check decisions.len == Seats
     for slot in 0 ..< Seats:
@@ -215,7 +215,7 @@ suite "degrade, never hang":
     let observations = observationSet()
     var client = newStubClient(config, nil)
     client.disabled = true
-    let decisions = client.decideAll(observations, newSeq[string](Seats),
+    let decisions = client.decideAll(PromptSelection(), observations, newSeq[string](Seats),
       newSeq[ScriptKind](Seats))
     check client.batchSizes.len == 0
     for decision in decisions:
@@ -239,7 +239,7 @@ suite "degrade, never hang":
       check client.disabled
       ## And a disabled client never opens another batch: every seat is
       ## scripted from here to the end of the episode.
-      let decisions = client.decideAll(observations, newSeq[string](Seats),
+      let decisions = client.decideAll(PromptSelection(), observations, newSeq[string](Seats),
         newSeq[ScriptKind](Seats))
       check client.batchSizes.len == 0
       for decision in decisions:

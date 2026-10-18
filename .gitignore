@@ -13,3 +13,5 @@ training-data/
 train_dir/
 private/
 **/*.jsonl
+
+__pycache__/

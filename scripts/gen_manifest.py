@@ -84,6 +84,16 @@ def config_schema() -> dict:
         "additionalProperties": False,
         "required": ["tokens", "players"],
         "properties": {
+            "promptVariant": {
+                "type": "string", "default": "canonical",
+                "enum": ["canonical", "plain", "numbered", "questions", "reordered",
+                         "heldout-briefing", "heldout-reference", "mixed"],
+                "description": "Episode-stable rules introduction; heldout variants are evaluation-only.",
+            },
+            "promptSeed": {
+                "type": "integer", "minimum": 0, "default": 0,
+                "description": "Independent wording seed. Mixed selection requires an explicit value.",
+            },
             "tokens": {
                 "description":
                     "One connection token per player slot, indexed by slot.",
