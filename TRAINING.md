@@ -78,7 +78,7 @@ python3 tools/test_train_bridge.py /tmp/matrix-train-bridge
 ```
 
 `--language` exposes the exact hosted system/user prompts and counter completion,
-including private notes and public speech. Every reply passes through the
+including private notes and spectator-only speech. Every reply passes through the
 production `extractJsonObject` and `parseOrder` before canonical execution.
 The test plays all seven variants in both modes and verifies note continuity.
 
