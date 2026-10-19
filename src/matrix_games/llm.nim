@@ -216,7 +216,8 @@ reply must begin with the character { and end with }.
 {"intent":"gather|deny|hunt|avoid|hold","token":"<token name>",
  "target":"<alias>","say":"<= 64 chars","notes":"<= 400 chars"}
 `token` is required for gather and deny; `target` is required for hunt and
-avoid; both are ignored otherwise. `say` is shown to spectators only.""")
+avoid; both are ignored otherwise. `say` is shown to spectators only.
+""")
     return
   result.add("""
 THE YARD. A 24 x 14 grid of floor and wall. Token spawners are fixed cells;
