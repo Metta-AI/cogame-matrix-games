@@ -88,7 +88,7 @@ def config_schema() -> dict:
                 "type": "string", "default": "canonical",
                 "enum": ["canonical", "plain", "numbered", "questions", "reordered",
                          "heldout-briefing", "heldout-reference", "mixed"],
-                "description": "Episode-stable rules introduction; heldout variants are evaluation-only.",
+                "description": "Episode-stable full rule presentation; heldout variants are evaluation-only.",
             },
             "promptSeed": {
                 "type": "integer", "minimum": 0, "default": 0,

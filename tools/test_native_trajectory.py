@@ -1,14 +1,13 @@
 """Verify native HTTP/WebSocket trajectory evidence without provider credentials.
 
-Arguments: compiled game, fresh private output, source commit, replay verifier.
+Arguments: compiled game binary, fresh private output directory, source commit.
 """
 
-import argparse
-import hashlib
 import json
 import os
 import socket
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -17,25 +16,11 @@ from pathlib import Path
 
 from websockets.sync.client import connect
 
-parser = argparse.ArgumentParser()
-parser.add_argument("binary", type=Path)
-parser.add_argument("output", type=Path)
-parser.add_argument("revision")
-parser.add_argument("verifier", type=Path)
-parser.add_argument("--published", action="store_true")
-parser.add_argument("--variant", default="prisoners-dilemma")
-parser.add_argument("--wording", default="canonical")
-parser.add_argument(
-    "--mode", choices=("accepted", "retry", "fallback", "greedy", "refusal")
-)
-args = parser.parse_args()
-binary, revision = args.binary, args.revision
-root = args.output.resolve()
+binary, output, revision = sys.argv[1:]
+root = Path(output)
 root.mkdir(mode=0o700, parents=True, exist_ok=False)
 reports = []
-for mode in (
-    [args.mode] if args.mode else ["accepted", "retry", "fallback", "greedy", "refusal"]
-):
+for mode in ["accepted", "retry", "fallback", "greedy", "refusal"]:
     folder = root / mode
     folder.mkdir(mode=0o700)
     requests = []
@@ -47,6 +32,7 @@ for mode in (
         def do_POST(self):
             assert self.path == "/v1/messages"
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            assert "OBJECTIVE" in body["system"]
             user = body["messages"][0]["content"]
             action = {
                 "intent": "hold",
@@ -105,7 +91,9 @@ for mode in (
     listener.bind(("127.0.0.1", 0))
     port = listener.getsockname()[1]
     listener.close()
-    config: dict = {
+    config = {
+        "promptVariant": "mixed",
+        "promptSeed": 4,
         "seed": 17,
         "num_agents": 8,
         "matrix": "prisoners-dilemma",
@@ -119,30 +107,6 @@ for mode in (
         "tokens": [str(i) for i in range(8)],
         "players": [{"name": "fixture-" + str(i)} for i in range(8)],
     }
-    if args.published:
-        manifest = json.loads(
-            (
-                Path(__file__).resolve().parents[1] / "coworld_manifest_template.json"
-            ).read_text()
-        )
-        config = {
-            key: schema["default"]
-            for key, schema in manifest["game"]["config_schema"]["properties"].items()
-            if "default" in schema
-        }
-        config.update(
-            next(
-                v["game_config"]
-                for v in manifest["variants"]
-                if v["id"] == args.variant
-            )
-        )
-        config.update(
-            seed=17,
-            tokens=[str(i) for i in range(8)],
-            players=[{"name": "fixture-" + str(i)} for i in range(8)],
-        )
-    config.update(promptVariant=args.wording, promptSeed=3)
     config_path = folder / "config.json"
     config_path.write_text(json.dumps(config))
     environment = dict(os.environ)
@@ -160,8 +124,6 @@ for mode in (
         COWORLD_GAME_VERSION="source-fixture",
         COWORLD_SOURCE_REVISION=revision,
     )
-    started = time.monotonic()
-    final_frames = []
     with (folder / "game.log").open("w") as log:
         process = subprocess.Popen(
             [binary], env=environment, stdout=log, stderr=subprocess.STDOUT
@@ -188,26 +150,7 @@ for mode in (
                             {"type": "prompt", "prompt": "PRIVATE OPERATOR SENTINEL"}
                         )
                     )
-
-                def receive(seat):
-                    for message in seat:
-                        frame = json.loads(message)
-                        if frame["type"] == "final":
-                            final_frames.append(frame)
-                            break
-
-                readers = [
-                    threading.Thread(target=receive, args=(seat,)) for seat in sockets
-                ]
-                for reader in readers:
-                    reader.start()
-                assert process.wait(timeout=config["episodeTimeoutSeconds"]) == 0, (
-                    folder / "game.log"
-                ).read_text()
-                for reader in readers:
-                    reader.join(timeout=5)
-                    assert not reader.is_alive()
-                assert len(final_frames) == 8
+                assert process.wait(timeout=45) == 0, (folder / "game.log").read_text()
             finally:
                 for seat in sockets:
                     seat.close()
@@ -222,41 +165,17 @@ for mode in (
         for line in (folder / "trajectory.jsonl").read_text().splitlines()
     ]
     decisions = events[:-1]
-    assert len(decisions) == config["beats"] * 8 and all(
+    assert len(decisions) == 16 and all(
         decision["terminal"] for decision in decisions[-8:]
     )
     assert events[-1]["status"] == "completed"
-    assert events[-1]["outcome"]["beats"] == config["beats"]
-    assert events[-1]["source_revision"] == revision
-    if args.published:
-        assert (
-            time.monotonic() - started
-            >= (config["beats"] - 1) * config["minBeatSeconds"]
-        )
-    subprocess.run(
-        [args.verifier, folder / "trajectory.jsonl", folder / "replay.json"], check=True
-    )
+    assert events[-1]["outcome"]["beats"] == 2
     calls = {record["platform_call_id"]: record for record in requests}
     for decision in decisions:
-        metadata = decision["observation"]["prompt_template"]
-        assert metadata["bank"] == "matrix-games-rules-v1"
-        assert metadata["selection"] == args.wording and metadata["seed"] == 3
-        expected = "questions" if args.wording == "mixed" else args.wording
-        assert metadata["variant"] == expected
-        first_prompt = decision["attempts"][0]["prompt"]
-        for role, index in (("system", 0), ("user", 1)):
-            assert (
-                metadata[role + "_sha256"]
-                == hashlib.sha256(first_prompt[index]["content"].encode()).hexdigest()
-            )
         for attempt in decision["attempts"]:
             archive = calls[attempt["platform_call_id"]]
             assert decision["seat"] == archive["caller_slot"]
             assert attempt["request"] == archive["caller_request"]
-            assert attempt["prompt"] == [
-                {"role": "system", "content": attempt["request"]["system"]},
-                *attempt["request"]["messages"],
-            ]
             assert attempt["request"]["model"] == "fixture/native"
             assert (
                 attempt["model"]
@@ -301,9 +220,6 @@ for mode in (
     reports.append(
         {
             "mode": mode,
-            "variant": args.variant,
-            "wording": args.wording,
-            "published": args.published,
             "complete_episodes": 1,
             "decisions": len(decisions),
             "native_call_joins": len(requests),

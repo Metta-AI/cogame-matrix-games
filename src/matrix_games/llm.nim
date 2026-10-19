@@ -165,12 +165,59 @@ proc systemPrompt*(selection: PromptSelection, obs: JsonNode): string =
   var tokens: seq[string]
   for name in rules{"tokens"}:
     tokens.add(name.getStr())
-  result = selection.introduction(obs{"name"}.getStr().toUpperAscii(),
-    obs{"variant"}.getStr().toUpperAscii())
+  result = "You are " & obs{"name"}.getStr().toUpperAscii() &
+    ", one of eight cogs in a walled yard playing MATRIX GAMES, variant " &
+    obs{"variant"}.getStr().toUpperAscii() & ".\n"
   if rules{"crossCampOnly"}.getBool(false):
     result.add("Your camp is " & obs{"camp"}.getStr().toUpperAscii() &
       ". Interactions only resolve BETWEEN camps: a beam at your own camp " &
       "is a no-contest.\n")
+  if selection.selectedVariant != pvCanonical:
+    let yard = "The yard is a 24 by 14 floor-and-wall grid. Token spawners stay in fixed " &
+      "cells. Walk onto one to collect its token unless you hold " & $rules["tokenCap"].getInt() &
+      " of that type. A collected spawner refills after " & $rules["tokenRespawnTicks"].getInt() &
+      " ticks. Everyone can see zone token counts, including depletion from camping."
+    let beat = "Play lasts " & $obs["beats"].getInt() & " beats, each containing " &
+      $obs["ticksPerBeat"].getInt() & " ticks. Submit one intent per beat; the deterministic " &
+      "kernel executes it throughout that beat. The intents have these meanings:\n" & """  gather <token>  walk to the nearest live token of that type and collect it.
+                  Never fires the beam.
+  deny <token>    take the token of that type nearest to the nearest other
+                  cog. Never fires the beam.
+  hunt <alias>    walk toward that cog and fire the beam the first tick it is
+                  in your ray and your beam is ready.
+  avoid <alias>   move away from that cog and never come within 2 cells.
+  hold            stand still, re-face the nearest cog within 6 cells, and
+                  fire when one is in your ray."""
+    let beam = "A beam travels straight along your facing for up to " & $rules["beamRange"].getInt() &
+      " cells, stopping at the first wall. Its target is the first cog in the ray. " &
+      "Frozen or newly reset targets produce no contest."
+    let payoff = "Your actual inventory is your strategy. For your counts n_i and another " &
+      "cog's counts m_j, with totals N and M, your payoff is " &
+      "sum_i,j(n_i * pay[i][j] * m_j) / (N * M). Declarations do not change your mix. " &
+      "Any cog within " & $rules["viewRadius"].getInt() &
+      " cells with clear line of sight can read your whole inventory. After a resolution, " &
+      "both participants reset to one token of each type and freeze for " &
+      $rules["freezeTicks"].getInt() & " ticks. Building a mix therefore costs time.\n" &
+      "PAYOFF MATRIX (row payoff / column payoff):\n" & matrixTable(obs)
+    let scoring = "Maximize the sum of your collected payoffs. Never interacting gives " &
+      "exactly zero. All eight cogs decide simultaneously, and the other seven never " &
+      "read anything you write."
+    let briefing = case selection.selectedVariant
+      of pvPlain: yard & "\n\n" & beat & "\n\n" & beam & "\n\n" & payoff & "\n\n" & scoring
+      of pvNumbered: "1. Yard\n" & yard & "\n2. Intent execution\n" & beat & "\n3. Beam\n" & beam & "\n4. Inventory and payoffs\n" & payoff & "\n5. Score and information\n" & scoring
+      of pvQuestions: "How do I score?\n" & scoring & "\nWhat determines an interaction payoff?\n" & payoff & "\nHow does the beam work?\n" & beam & "\nWhere do tokens come from?\n" & yard & "\nHow do I act?\n" & beat
+      of pvReordered: "PAYOFFS\n" & payoff & "\nOBJECTIVE\n" & scoring & "\nINTERACTION\n" & beam & "\nACTIONS\n" & beat & "\nYARD\n" & yard
+      of pvHeldoutBriefing: "Read the execution contract.\n" & beat & "\nInspect resources.\n" & yard & "\nUnderstand the interaction.\n" & beam & "\nCalculate its value.\n" & payoff & "\nEvaluate the episode.\n" & scoring
+      of pvHeldoutReference: "Beam reference: " & beam & "\nYard reference: " & yard & "\nPayoff reference: " & payoff & "\nScoring reference: " & scoring & "\nControl reference: " & beat
+      of pvCanonical, pvMixed: raise newException(ValueError, "alternate wording must resolve")
+    result.add(briefing & "\n\n" & """OUTPUT FORMAT: reply with ONLY one JSON object, nothing else - no analysis,
+no explanation, no markdown fences, no text before or after the object. Your
+reply must begin with the character { and end with }.
+{"intent":"gather|deny|hunt|avoid|hold","token":"<token name>",
+ "target":"<alias>","say":"<= 64 chars","notes":"<= 400 chars"}
+`token` is required for gather and deny; `target` is required for hunt and
+avoid; both are ignored otherwise. `say` is shown to spectators only.""")
+    return
   result.add("""
 THE YARD. A 24 x 14 grid of floor and wall. Token spawners are fixed cells;
 stepping onto one collects its token unless you already hold """ &

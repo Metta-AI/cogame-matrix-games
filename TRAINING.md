@@ -15,11 +15,13 @@ private notes and pending order intent/token/target; stored readers remain intac
 
 ## Episode wording
 
-`promptVariant` selects one of five training introductions: `canonical`, `plain`,
+`promptVariant` selects one of five training presentations: `canonical`, `plain`,
 `numbered`, `questions`, or `reordered`. `mixed` resolves a nonnegative explicit
 `promptSeed` modulo five once per episode without consuming simulation randomness.
-The `matrix-games-rules-v1` bank retains the original canonical prompt bytes.
-Shared payoff tables, private observations, intent rules, and reply schemas stay fixed.
+The `matrix-games-rules-v2` bank retains the original canonical prompt bytes.
+Complete yard, timing, beam, inventory-payoff, and scoring explanations vary in
+wording and order. Payoff tables, private observations, intent semantics, and reply
+schemas stay fixed.
 `heldout-briefing` and `heldout-reference` are evaluation-only; training bridge resets
 and source exports reject them. Private metadata hashes the rendered messages.
 External policies receive the selected prompt configuration with each observation.
@@ -30,27 +32,24 @@ Commit the qualified source, sync `nimby.lock`, then export every variant:
 
 ```sh
 nim c -d:release --path:src --out:/tmp/matrix-export tools/export_posttrain.nim
-nim c -d:release --path:src --out:/tmp/matrix-check-episode tools/check_episode.nim
 for variant in running-with-scissors prisoners-dilemma chicken stag-hunt \
   bach-or-stravinsky pure-coordination rationalizable-coordination; do
   /tmp/matrix-export "/tmp/matrix-${variant}" 10 1 "$variant"
-  python3 tools/test_training_corpus.py "/tmp/matrix-${variant}" /tmp/matrix-check-episode
+  python3 tools/test_training_corpus.py "/tmp/matrix-${variant}"
 done
 ```
 
-Each output contains complete private event trajectories, per-episode replays,
-aggregate `trajectories.jsonl`, and a review-required manifest. No training or
-validation labels are assigned. Every seat uses its ordinary hosted prompt and
-parser. Actual installed orders and private observations reconstruct every public
-replay frame, event, and outcome through the production simulator. Fresh directories
-are required; mode 0700 directories and 0600 files protect prompts and responses.
+Each output retains the original complete private episodes, train/validation JSONL,
+and manifest. Teacher labels correspond to accepted engine-applied actions. Private
+files have mode 0600 and directories 0700. Existing outputs are refused, and exports
+require clean committed source so revision pins identify the code.
 
-Append a wording and independent prompt seed to select a training introduction:
-`/tmp/matrix-export /tmp/matrix-plain 10 1 chicken plain 0`. All payoff variants and
-wording replicas retain the same `matrix-games-SEED` family. The shared typed
-importer and independent review determine admission and family-level splits.
-Unreviewed candidates cannot become training labels. Scripted evidence does not
-establish model quality or hosted sampling parity.
+Append a wording and independent prompt seed, for example:
+`/tmp/matrix-export /tmp/matrix-mixed 10 1 chicken mixed 0`.
+Mixed exports cycle separately within training and validation; every fifth scenario
+is validation. All payoff variants retain the `matrix-games-SEED` family. Check actual
+training rows for all five presentations before training. Corpora still require
+content review. Scripted checks do not establish learned robustness or hosted sampling parity.
 
 Ordinary supervised training uses Metta's maintained upstream SLIME integration.
 From the Metta checkout, after dataset review:

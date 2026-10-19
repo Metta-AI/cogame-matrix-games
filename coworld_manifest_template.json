@@ -47,7 +47,7 @@
             "heldout-reference",
             "mixed"
           ],
-          "description": "Episode-stable rules introduction; heldout variants are evaluation-only."
+          "description": "Episode-stable full rule presentation; heldout variants are evaluation-only."
         },
         "promptSeed": {
           "type": "integer",
