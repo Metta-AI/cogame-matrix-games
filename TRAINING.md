@@ -51,14 +51,8 @@ is validation. All payoff variants retain the `matrix-games-SEED` family. Check 
 training rows for all five presentations before training. Corpora still require
 content review. Scripted checks do not establish learned robustness or hosted sampling parity.
 
-Ordinary supervised training uses Metta's maintained upstream SLIME integration.
-From the Metta checkout, after dataset review:
-
-```sh
-uv run ./tools/run.py coworld_posttrain.train \
-  dataset=/tmp/matrix-running-with-scissors model=MODEL_OR_PATH \
-  revision=IMMUTABLE_MODEL_REVISION run=matrix-sft config.updates=64
-```
+Use the [post-training research package](https://github.com/Metta-AI/posttraining-research/tree/main/packages/metta-posttraining)
+for the maintained SLIME training and adapter-packaging workflows after dataset review.
 
 Reload and verify the resulting artifact with the shared `SlimeRun` and owned
 learner gateway. Save the player with a registered
@@ -97,8 +91,8 @@ before claiming a trained player is ready for hosted inference.
 Held-out bridge wordings require an explicit `evaluation`, `validation`, or `test`
 split. Omitted, training, and unrecognized splits reject them.
 
-Native trajectories and training rows share an episode ID containing the selected
-wording and prompt seed. Matched wording collections have distinct IDs while
+Native trajectories and training rows share an episode ID containing requested selection,
+resolved wording, and prompt seed. Matched wording collections have distinct IDs while
 their gameplay seed families remain unchanged.
 
 Version three independently phrases numbered, question-led, reordered, and held-out

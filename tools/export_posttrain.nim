@@ -59,7 +59,7 @@ when isMainModule:
     var game = initSim(config)
     var rows: seq[string]
     let episodeId = "matrix-games-" & variant & "-" & $seed & "-" &
-      $selection.selectedVariant & "-" & $selection.seed
+      $selection.variant & "-" & $selection.selectedVariant & "-" & $selection.seed
     let trajectory = newDecisionTrajectory(episodeId, "matrix-games-" & $seed, "matrix-games",
       "source-" & sourceRevision[0 .. 11], sourceRevision)
     for beat in 0 ..< config.beats:
