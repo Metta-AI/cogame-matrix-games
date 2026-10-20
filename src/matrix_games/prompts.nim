@@ -17,7 +17,7 @@ type
     seed*: int
 
 const
-  PromptBankVersion* = "matrix-games-rules-v2"
+  PromptBankVersion* = "matrix-games-rules-v3"
 
 proc promptSelection*(node: JsonNode): PromptSelection =
   if node.kind != JObject:

@@ -18,7 +18,7 @@ private notes and pending order intent/token/target; stored readers remain intac
 `promptVariant` selects one of five training presentations: `canonical`, `plain`,
 `numbered`, `questions`, or `reordered`. `mixed` resolves a nonnegative explicit
 `promptSeed` modulo five once per episode without consuming simulation randomness.
-The `matrix-games-rules-v2` bank retains the original canonical prompt bytes.
+The `matrix-games-rules-v3` bank retains the original canonical prompt bytes.
 Complete yard, timing, beam, inventory-payoff, and scoring explanations vary in
 wording and order. Payoff tables, private observations, intent semantics, and reply
 schemas stay fixed.
@@ -100,3 +100,7 @@ split. Omitted, training, and unrecognized splits reject them.
 Native trajectories and training rows share an episode ID containing the selected
 wording and prompt seed. Matched wording collections have distinct IDs while
 their gameplay seed families remain unchanged.
+
+Version three independently phrases numbered, question-led, reordered, and held-out
+explanations. Numeric facts, the payoff matrix, intent definitions, and output contract
+remain fixed. Canonical/plain text is unchanged.

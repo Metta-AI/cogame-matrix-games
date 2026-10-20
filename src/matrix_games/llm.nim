@@ -173,13 +173,7 @@ proc systemPrompt*(selection: PromptSelection, obs: JsonNode): string =
       ". Interactions only resolve BETWEEN camps: a beam at your own camp " &
       "is a no-contest.\n")
   if selection.selectedVariant != pvCanonical:
-    let yard = "The yard is a 24 by 14 floor-and-wall grid. Token spawners stay in fixed " &
-      "cells. Walk onto one to collect its token unless you hold " & $rules["tokenCap"].getInt() &
-      " of that type. A collected spawner refills after " & $rules["tokenRespawnTicks"].getInt() &
-      " ticks. Everyone can see zone token counts, including depletion from camping."
-    let beat = "Play lasts " & $obs["beats"].getInt() & " beats, each containing " &
-      $obs["ticksPerBeat"].getInt() & " ticks. Submit one intent per beat; the deterministic " &
-      "kernel executes it throughout that beat. The intents have these meanings:\n" & """  gather <token>  walk to the nearest live token of that type and collect it.
+    let intents = """  gather <token>  walk to the nearest live token of that type and collect it.
                   Never fires the beam.
   deny <token>    take the token of that type nearest to the nearest other
                   cog. Never fires the beam.
@@ -188,6 +182,13 @@ proc systemPrompt*(selection: PromptSelection, obs: JsonNode): string =
   avoid <alias>   move away from that cog and never come within 2 cells.
   hold            stand still, re-face the nearest cog within 6 cells, and
                   fire when one is in your ray."""
+    let yard = "The yard is a 24 by 14 floor-and-wall grid. Token spawners stay in fixed " &
+      "cells. Walk onto one to collect its token unless you hold " & $rules["tokenCap"].getInt() &
+      " of that type. A collected spawner refills after " & $rules["tokenRespawnTicks"].getInt() &
+      " ticks. Everyone can see zone token counts, including depletion from camping."
+    let beat = "Play lasts " & $obs["beats"].getInt() & " beats, each containing " &
+      $obs["ticksPerBeat"].getInt() & " ticks. Submit one intent per beat; the deterministic " &
+      "kernel executes it throughout that beat. The intents have these meanings:\n" & intents
     let beam = "A beam travels straight along your facing for up to " & $rules["beamRange"].getInt() &
       " cells, stopping at the first wall. Its target is the first cog in the ray. " &
       "Frozen or newly reset targets produce no contest."
@@ -202,15 +203,49 @@ proc systemPrompt*(selection: PromptSelection, obs: JsonNode): string =
     let scoring = "Maximize the sum of your collected payoffs. Never interacting gives " &
       "exactly zero. All eight cogs decide simultaneously, and the other seven never " &
       "read anything you write."
+    let values = [$rules["tokenCap"].getInt(), $rules["tokenRespawnTicks"].getInt(),
+      $obs["beats"].getInt(), $obs["ticksPerBeat"].getInt(), $rules["beamRange"].getInt(),
+      $rules["viewRadius"].getInt(), $rules["freezeTicks"].getInt()]
     let briefing = case selection.selectedVariant
       of pvPlain: yard & "\n\n" & beat & "\n\n" & beam & "\n\n" & payoff & "\n\n" & scoring
-      of pvNumbered: "1. Yard\n" & yard & "\n2. Intent execution\n" & beat & "\n3. Beam\n" & beam & "\n4. Inventory and payoffs\n" & payoff & "\n5. Score and information\n" & scoring
-      of pvQuestions: "How do I score?\n" & scoring & "\nWhat determines an interaction payoff?\n" & payoff & "\nHow does the beam work?\n" & beam & "\nWhere do tokens come from?\n" & yard & "\nHow do I act?\n" & beat
-      of pvReordered: "PAYOFFS\n" & payoff & "\nOBJECTIVE\n" & scoring & "\nINTERACTION\n" & beam & "\nACTIONS\n" & beat & "\nYARD\n" & yard
-      of pvHeldoutBriefing: "Read the execution contract.\n" & beat & "\nInspect resources.\n" & yard & "\nUnderstand the interaction.\n" & beam & "\nCalculate its value.\n" & payoff & "\nEvaluate the episode.\n" & scoring
-      of pvHeldoutReference: "Beam reference: " & beam & "\nYard reference: " & yard & "\nPayoff reference: " & payoff & "\nScoring reference: " & scoring & "\nControl reference: " & beat
+      of pvNumbered: """1. Collect resources on a 24-by-14 grid of floor and walls. Spawners occupy fixed cells; entering one collects its token unless you already have $1 of that type. Collection starts a $2-tick refill delay. Token counts for each zone are public, making depletion by camping visible.
+2. Choose once per beat. The game lasts $3 beats with $4 ticks in each. All eight cogs choose simultaneously, and a deterministic kernel carries out your intent for that entire beat. None of the other seven reads what you write.
+3. Aim interactions along your facing. The beam reaches at most $5 cells, stops at the first wall, and targets the first cog on its ray. A frozen or newly reset target yields no contest.
+4. Treat your holdings as your strategy, not a declaration. If your counts are n_i (total N) and the opponent's are m_j (total M), your payoff is sum_i,j(n_i * pay[i][j] * m_j) / (N * M). The matrix below supplies pay. A cog within $6 cells and clear line of sight can inspect your entire inventory.
+5. After resolution, both cogs receive one token of each type and are frozen for $7 ticks. Rebuilding a mix takes time. Maximize the total payoff you collect; a cog that never interacts scores exactly zero.""" % values
+      of pvQuestions: """Where do tokens come from? Fixed spawner cells in a 24 by 14 floor-and-wall yard. Step onto a spawner to take its token, provided your count of that type is below $1. It refills $2 ticks after collection. Everyone sees zone token counts, so camping and draining a zone is observable.
+When do I choose? Once in each of $3 beats. Each beat contains $4 ticks, during which a deterministic kernel executes the intent you chose. Decisions from all eight seats are simultaneous. Your writing is never read by the other seven.
+What causes an interaction? A beam points straight along your facing, extends up to $5 cells, and ends at the first wall. The first cog in that ray is the target. Frozen and newly reset targets give no contest.
+How is the payoff computed? Use your inventory itself as the strategy. With n_i of your tokens, m_j of theirs, and totals N and M, you receive sum_i,j(n_i * pay[i][j] * m_j) / (N * M) from the displayed matrix. Announcing a mix does not change what you hold. Other cogs can read your complete inventory from within $6 cells when line of sight is clear.
+What follows a resolution? Both inventories return to one token per type, and both cogs freeze for $7 ticks. Building another mix therefore consumes time. Your objective is the sum of collected payoffs, with higher better; no interactions means a score of exactly zero.""" % values
+      of pvReordered: """OBJECTIVE AND COMMITMENT
+Collect the largest sum of payoffs. Never interacting leaves your score at exactly zero. Your token holdings, rather than anything you declare, define your strategy. For inventory counts n_i and m_j with totals N and M, your payoff is sum_i,j(n_i * pay[i][j] * m_j) / (N * M), using the matrix below. A clear line of sight from within $6 cells exposes your whole inventory to another cog. Each resolved interaction resets both inventories to one of every token and freezes both cogs for $7 ticks, so assembling a mix has a time cost.
+TARGETING
+Your beam runs straight in the direction you face for up to $5 cells. The first wall stops it; the first cog on its ray is its target. There is no contest against a target that is frozen or newly reset.
+RESOURCES
+The yard consists of a 24 x 14 grid with floor and walls. Token-producing cells do not move. Entering one grants its token unless your stock of that type has reached $1; a collected cell refills after $2 ticks. Public zone counts reveal depletion, including depletion caused by camping.
+CONTROL
+There are $3 beats of $4 ticks. Submit one intent at each beat, then let the deterministic kernel execute it for the full beat. All eight players decide together. The other seven players never receive your written text.""" % values
+      of pvHeldoutBriefing: """Build a strategy by collecting actual tokens. The arena is a 24-by-14 floor-and-wall grid with stationary spawners. Walking onto a spawner takes its token unless you already hold $1 of that kind. Once collected, that spawner needs $2 ticks to refill. The counts in each zone are visible to everyone, including losses from a cog camping there.
+
+Commit one intent for each beat of play. There are $3 beats, each lasting $4 ticks. A deterministic execution kernel follows that intent throughout the beat. Every cog makes its decision at the same time as the others, and the other seven cogs cannot read anything you write.
+
+An interaction beam follows your facing in a straight ray, limited to $5 cells and blocked by the first wall. It selects the first cog in the ray. Hitting a frozen or just-reset cog does not produce a contest.
+
+Calculate the value of an interaction from the holdings of both participants. Calling your counts n_i and the other's m_j, with N and M their respective totals, the matrix gives your payoff as sum_i,j(n_i * pay[i][j] * m_j) / (N * M). Stated intentions cannot substitute for the inventory you actually carry. Any cog with an unobstructed view from within $6 cells can read that inventory in full.
+
+A resolution leaves each participant with one token of every type and unable to act for $7 ticks. Reconstructing the desired mix consequently takes time. Aim for the highest accumulated payoff. If you never interact, your score remains precisely zero.""" % values
+      of pvHeldoutReference: """Timing and information: the episode comprises $3 beats, with $4 ticks per beat. One chosen intent governs a whole beat through deterministic execution. Choices are simultaneous across eight cogs. No other cog reads text you write.
+Collection: the arena has 24 by 14 floor/wall cells and fixed token spawners. Entering a spawner collects its token subject to a holding limit of $1 for that token type. Refill occurs $2 ticks after collection. Counts by zone are public, so removal through camping is visible.
+Beam geometry: a straight ray in the facing direction has maximum length $5 cells and is blocked by its first wall. Its first cog is the target. Frozen or newly reset targets are no-contests.
+Payoff rule: the strategy is the inventory held, regardless of declarations. Let n_i and m_j be the two inventories and N and M their totals. Your reward is sum_i,j(n_i * pay[i][j] * m_j) / (N * M), evaluated with the matrix shown below. Inventory is fully readable by a cog no farther than $6 cells away with clear line of sight.
+Resolution and scoring: both participants reset to one token of each type, then freeze for $7 ticks. The time needed to rebuild holdings is part of committing to a mix. The score to maximize is the sum of your received payoffs. A participant with no interactions receives exactly zero.""" % values
       of pvCanonical, pvMixed: raise newException(ValueError, "alternate wording must resolve")
-    result.add(briefing & "\n\n" & """OUTPUT FORMAT: reply with ONLY one JSON object, nothing else - no analysis,
+    result.add(briefing)
+    if selection.selectedVariant != pvPlain:
+      result.add("\n\nINTENT DEFINITIONS:\n" & intents &
+        "\n\nPAYOFF MATRIX (row payoff / column payoff):\n" & matrixTable(obs))
+    result.add("\n\n" & """OUTPUT FORMAT: reply with ONLY one JSON object, nothing else - no analysis,
 no explanation, no markdown fences, no text before or after the object. Your
 reply must begin with the character { and end with }.
 {"intent":"gather|deny|hunt|avoid|hold","token":"<token name>",
