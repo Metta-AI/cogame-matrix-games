@@ -93,3 +93,6 @@ Greedy token IDs may be retained without probabilities. Never reconstruct token
 IDs from replay text or fabricate likelihoods. Use shared SLIME `GameTask`
 provenance, checkpoint reload verification, and matched base/trained evaluation
 before claiming a trained player is ready for hosted inference.
+
+Held-out bridge wordings require an explicit `evaluation`, `validation`, or `test`
+split. Omitted, training, and unrecognized splits reject them.
