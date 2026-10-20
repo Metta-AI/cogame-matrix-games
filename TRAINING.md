@@ -96,3 +96,7 @@ before claiming a trained player is ready for hosted inference.
 
 Held-out bridge wordings require an explicit `evaluation`, `validation`, or `test`
 split. Omitted, training, and unrecognized splits reject them.
+
+Native trajectories and training rows share an episode ID containing the selected
+wording and prompt seed. Matched wording collections have distinct IDs while
+their gameplay seed families remain unchanged.
