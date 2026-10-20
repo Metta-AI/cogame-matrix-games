@@ -15,9 +15,12 @@ re-send guards the slot-registration race):
 
 An external policy registers with `{"type":"register","control":"external",
 "policy":"<display label>","kind":"llm|scripted"}`. At each beat, the game sends
-`{"type":"observation","beat":N,"observation":{...}}`. The policy replies
+`{"type":"observation","beat":N,"observation":{...},"prompt_configuration":{...}}`. The policy replies
 `{"type":"action","beat":N,"action":{"intent":"hold"}}`, using the reply
 schema below. The game validates the action against that seat’s legal lists.
+The prompt configuration identifies the `matrix-games-rules-v1` bank, resolved
+`variant`, requested `selection`, and independent `seed`. It stays fixed throughout
+the episode. The frame also includes the actual `input.system` and `input.user`.
 Existing prompt registrations remain accepted, including older scripted
 registrations. The bundled scripted policy uses the external interface.
 

@@ -25,7 +25,7 @@ import curly
 import mummy
 import mummy/routers
 import sim_types, sim_config, matrices, sim_state, indices, sim,
-  llm, broadcast, replays
+  llm, broadcast, replays, prompts
 
 type
   ServerState = object
@@ -184,6 +184,7 @@ proc finishEpisode(runtimeConfig: RuntimeConfig) =
 proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
   {.gcsafe.}:
     let config = gameSim.config
+    let selection = promptSelection(parseJson(runtimeConfig.config))
     ## Stamped BEFORE the connect wait on purpose: the 720 s play deadline
     ## bounds the WHOLE episode, connect time included, so the container
     ## always settles inside 60 % of episodeTimeoutSeconds. `validate()`
@@ -304,13 +305,14 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
                   "type": "observation",
                   "beat": beat,
                   "observation": observations[slot],
-                  "input": {"system": systemPrompt(observations[slot]),
+                  "prompt_configuration": selection.selectionMetadata,
+                  "input": {"system": systemPrompt(selection, observations[slot]),
                     "user": userPrompt(observations[slot], prompts[slot])}
                 })
         for slot in 0 ..< shared.seats:
           if external[slot]:
             kinds[slot] = skCounter
-        var decisions = client.decideAll(observations, prompts, kinds)
+        var decisions = client.decideAll(selection, observations, prompts, kinds)
         let actionDeadline = epochTime() + config.llmTimeoutSeconds.float
         while epochTime() < actionDeadline:
           var waiting = false
@@ -357,7 +359,10 @@ proc runGame(runtimeConfig: RuntimeConfig) {.gcsafe.} =
                 selected = some(attempts[^1].attemptId)
               shared.trajectory.get().recordDecision("beat-" & $beat & "-seat-" & $slot,
                 $slot, %*{"view": observations[slot], "macro_ticks": config.ticksPerBeat,
-                  "tick_before": beat * config.ticksPerBeat, "tick_after": gameSim.tick},
+                  "tick_before": beat * config.ticksPerBeat, "tick_after": gameSim.tick,
+                  "operator_prompt": prompts[slot],
+                  "prompt_template": selection.promptMetadata(systemPrompt(selection, observations[slot]),
+                    userPrompt(observations[slot], prompts[slot]))},
                 attempts, selected, action, if accepted: asAccepted else: asFallback,
                 terminal = gameSim.done,
                 fallbackOrigin = if accepted: none(string) else: some($decisions[slot].source))

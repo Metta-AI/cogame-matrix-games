@@ -153,6 +153,7 @@ jobs:
         run: |
           nim c -d:release --path:src --out:/tmp/matrix-train-bridge tools/train_bridge.nim
           python3 tools/test_train_bridge.py /tmp/matrix-train-bridge
+          python3 tools/test_prompt_games.py /tmp/matrix-train-bridge
 
       - name: Native complete private trajectory joins
         run: |
@@ -164,7 +165,7 @@ jobs:
         run: |
           nim c -d:release --path:src --out:/tmp/matrix-export tools/export_posttrain.nim
           for variant in running-with-scissors prisoners-dilemma chicken stag-hunt bach-or-stravinsky pure-coordination rationalizable-coordination; do
-            /tmp/matrix-export "/tmp/matrix-${variant}" 10 1 "$variant"
+            /tmp/matrix-export "/tmp/matrix-${variant}" 10 1 "$variant" mixed 0
             python3 tools/test_training_corpus.py "/tmp/matrix-${variant}"
           done
 

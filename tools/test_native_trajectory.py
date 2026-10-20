@@ -32,6 +32,7 @@ for mode in ["accepted", "retry", "fallback", "greedy", "refusal"]:
         def do_POST(self):
             assert self.path == "/v1/messages"
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            assert "OBJECTIVE" in body["system"]
             user = body["messages"][0]["content"]
             action = {
                 "intent": "hold",
@@ -91,6 +92,8 @@ for mode in ["accepted", "retry", "fallback", "greedy", "refusal"]:
     port = listener.getsockname()[1]
     listener.close()
     config = {
+        "promptVariant": "mixed",
+        "promptSeed": 4,
         "seed": 17,
         "num_agents": 8,
         "matrix": "prisoners-dilemma",

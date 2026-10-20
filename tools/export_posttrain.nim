@@ -3,7 +3,7 @@
 
 import std/[json, options, os, osproc, posix, strutils]
 import bitworld/decision_trajectory
-import matrix_games/[sim_types, sim_config, sim_state, sim, llm]
+import matrix_games/[sim_types, sim_config, sim_state, sim, llm, prompts]
 
 const OperatorPrompt = "Maximize your own cumulative payoff using only the visible yard and your inventory."
 const Variants = ["running-with-scissors", "prisoners-dilemma", "chicken",
@@ -12,12 +12,15 @@ const Variants = ["running-with-scissors", "prisoners-dilemma", "chicken",
 
 when isMainModule:
   let args = commandLineParams()
-  if args.len notin 2 .. 4:
-    quit("usage: export_posttrain OUTPUT GAMES [FIRST_SEED] [VARIANT]", 1)
+  if args.len notin [2, 3, 4, 6]:
+    quit("usage: export_posttrain OUTPUT GAMES [FIRST_SEED] [VARIANT] [PROMPT_VARIANT PROMPT_SEED]", 1)
   let output = args[0]
   let games = parseInt(args[1])
   let firstSeed = if args.len >= 3: parseInt(args[2]) else: 1
-  let variant = if args.len == 4: args[3] else: Variants[0]
+  let variant = if args.len >= 4: args[3] else: Variants[0]
+  let configured = promptSelection(if args.len == 6:
+    %*{"promptVariant": args[4], "promptSeed": parseInt(args[5])} else: newJObject())
+  doAssert configured.selectedVariant notin {pvHeldoutBriefing, pvHeldoutReference}, "held-out wording is evaluation only"
   if games < 10 or firstSeed < 1:
     quit("at least ten games and a positive first seed are required", 1)
   if variant notin Variants:
@@ -39,7 +42,13 @@ when isMainModule:
     trainRows: seq[string]
     validationRows: seq[string]
     runs = newJArray()
+    wordingCounts: array[2, int]
   for seed in firstSeed ..< firstSeed + games:
+    var selection = configured
+    let split = ord(seed mod 5 == 0)
+    if selection.variant == pvMixed:
+      selection.seed += wordingCounts[split]
+      inc wordingCounts[split]
     var config = defaultGameConfig()
     let runtimeConfig = copy(variantConfig)
     runtimeConfig["tokens"] = newJArray()
@@ -49,7 +58,8 @@ when isMainModule:
     config.update($runtimeConfig)
     var game = initSim(config)
     var rows: seq[string]
-    let episodeId = "matrix-games-" & variant & "-" & $seed
+    let episodeId = "matrix-games-" & variant & "-" & $seed & "-" &
+      $selection.variant & "-" & $selection.selectedVariant & "-" & $selection.seed
     let trajectory = newDecisionTrajectory(episodeId, "matrix-games-" & $seed, "matrix-games",
       "source-" & sourceRevision[0 .. 11], sourceRevision)
     for beat in 0 ..< config.beats:
@@ -66,18 +76,19 @@ when isMainModule:
         doAssert parsed == order
         decisions[slot] = Decision(order: parsed, source: osScripted)
         var attempt = newDecisionAttempt("teacher", "scripted-counter", aoTeacher)
-        attempt.prompt = %*[{"role": "system", "content": systemPrompt(obs)},
+        attempt.prompt = %*[{"role": "system", "content": systemPrompt(selection, obs)},
           {"role": "user", "content": userPrompt(obs, OperatorPrompt)}]
         attempt.response = %($completion)
         attempt.parsedAction = actionJson(parsed, obs)
         attempt.accepted = true
         attempts.add(attempt)
         rows.add($(%*{
-          "episode_id": "matrix-games-" & variant & "-" & $seed,
+          "episode_id": episodeId,
           "seed": "matrix-games-" & $seed,
           "decision_id": beat * Seats + slot,
+          "prompt_template": selection.promptMetadata(systemPrompt(selection, obs), userPrompt(obs, OperatorPrompt)),
           "prompt": [
-            {"role": "system", "content": systemPrompt(obs)},
+            {"role": "system", "content": systemPrompt(selection, obs)},
             {"role": "user", "content": userPrompt(obs, OperatorPrompt)}
           ],
           "completion": [{"role": "assistant", "content": $completion}],
@@ -91,6 +102,7 @@ when isMainModule:
       for slot in 0 ..< Seats:
         trajectory.recordDecision($ (beat * Seats + slot), $slot,
           %*{"view": observations[slot], "macro_ticks": config.ticksPerBeat,
+            "prompt_template": selection.promptMetadata(systemPrompt(selection, observations[slot]), userPrompt(observations[slot], OperatorPrompt)),
             "tick_before": beat * config.ticksPerBeat, "tick_after": game.tick},
           @[attempts[slot]], some("teacher"), actionJson(game.orders[slot], observations[slot]),
           asAccepted, terminal = game.done)

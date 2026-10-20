@@ -15,6 +15,14 @@ for split in ["train", "validation"]:
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     rows = [json.loads(line) for line in path.read_text().splitlines()]
     assert len(rows) == manifest[split + "_examples"] > 0
+    if split == "train" and rows[0]["prompt_template"]["selection"] == "mixed":
+        assert {row["prompt_template"]["variant"] for row in rows} == {
+            "canonical",
+            "plain",
+            "numbered",
+            "questions",
+            "reordered",
+        }
     for row in rows:
         labels[(row["episode_id"], str(row["decision_id"]))] = row
 for run in manifest["runs"]:
